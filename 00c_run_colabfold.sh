@@ -39,3 +39,15 @@ for type in prepro pro mature; do
             pdb="analysis/pdbs/$(basename "$fasta" .fasta).pdb"
             if ! grep -q "$pdb" "$checkpoint" && [ ! -f "$pdb" ]; then
                 "$colabfold_path" "$fasta" "$(dirname "$pdb")" --num-recycle 3 --model-type alphafold2_multimer_v3 --disulfide || { echo "$(date '+%Y-%m-%d %H:%M:%S') - ColabFold failed for $fasta" >> pipeline.log; exit 1; }
+                mv "$(dirname "$pdb")/predict_*.pdb" "$pdb"
+                echo "$pdb" >> "$checkpoint"
+            fi
+        done
+    fi
+done
+
+end_time=$(date +%s)
+runtime=$((end_time - start_time))
+python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory after: {psutil.virtual_memory().percent}%', file=open('pipeline.log', 'a'))"
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 00c_run_colabfold.sh completed in ${runtime}s" >> pipeline.log
+touch colabfold.done

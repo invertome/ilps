@@ -11,7 +11,7 @@ This pipeline identifies insulin-like peptides (ILPs) from transcriptomic data, 
 ```bash
 conda create -n ilp_pipeline python=3.9
 conda activate ilp_pipeline
-conda install -c bioconda curl pigz seqkit transdecoder cd-hit mmseqs2 hh-suite hmmer blast interproscan signalp6 mafft trimal fasttree iqtree meme taxonkit parallel mamba snakemake yq
+conda install -c bioconda curl pigz seqkit transdecoder cd-hit mmseqs2 hhsuite hmmer blast interproscan mafft trimal fasttree iqtree meme taxonkit parallel mamba snakemake yq
 conda install -c conda-forge r-base r-ape ete3 autophy psutil pymol-open-source
 conda install -c anaconda pandas scikit-learn xgboost matplotlib seaborn
 pip install biopython shap logomaker pyyaml

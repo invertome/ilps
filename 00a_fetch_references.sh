@@ -1,10 +1,10 @@
 #!/bin/bash
-# Purpose: Fetch ILP and non-ILP reference sequences from UniProt and curated sources for a balanced training set
-# Inputs: None (queries UniProt API and curated FASTA)
-# Outputs: input/ref_ILPs.fasta (annotated ILP/non-ILP sequences)
+# Purpose: Fetch ILP and non-ILP reference sequences from UniProt and curated sources, and generate HMM profiles
+# Inputs: None (queries UniProt API)
+# Outputs: input/ref_ILPs.fasta (annotated ILP/non-ILP sequences), input/ilp.hmm, input/ilp_db.hhm
 # Config: config.yaml (max_cpus, thresholds)
 # Log: pipeline.log (tracks progress, errors, and profiling)
-# Notes: Ensures diverse ILP representation with high-quality curated references
+# Notes: Ensures diverse ILP representation with high-quality curated references; generates HMM profiles
 # Author: Jorge L. Pérez-Moreno, Ph.D., Katz Lab, University of Massachusetts, Amherst
 
 # Load config
@@ -18,6 +18,12 @@ python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory before: 
 if [ -f input/.done ]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S') - Skipping 00a_fetch_references.sh (already done)" >> pipeline.log
     exit 0
+fi
+
+# Check dependencies
+if ! command -v yq >/dev/null 2>&1 || ! command -v mafft >/dev/null 2>&1 || ! command -v hmmbuild >/dev/null 2>&1 || ! command -v hhmake >/dev/null 2>&1; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Error: Missing required tools (yq, mafft, hmmbuild, or hhmake)" >> pipeline.log
+    exit 1
 fi
 
 # Create input directory
@@ -52,8 +58,14 @@ curl -o input/ref_non_ILPs.fasta \
 cat input/ref_ILPs_temp.fasta input/ref_non_ILPs.fasta > input/ref_combined.fasta
 python annotate_references.py input/ref_combined.fasta input/ref_ILPs_temp_interpro.tsv input/ref_ILPs.fasta || { echo "$(date '+%Y-%m-%d %H:%M:%S') - annotate_references.py failed" >> pipeline.log; exit 1; }
 
-# Clean up
-pigz -f input/ref_ILPs_raw.fasta input/ref_ILPs_curated.fasta input/ref_non_ILPs.fasta input/ref_combined.fasta input/ref_ILPs_temp.fasta input/ref_ILPs_temp_interpro.tsv
+# Generate HMM profiles
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Generating HMM profiles from reference ILPs" >> pipeline.log
+mafft --auto --thread "$max_cpus" input/ref_ILPs.fasta > input/ref_ILPs_aligned.fasta || { echo "$(date '+%Y-%m-%d %H:%M:%S') - MAFFT alignment failed" >> pipeline.log; exit 1; }
+hmmbuild input/ilp.hmm input/ref_ILPs_aligned.fasta || { echo "$(date '+%Y-%m-%d %H:%M:%S') - hmmbuild failed" >> pipeline.log; exit 1; }
+hhmake -i input/ref_ILPs_aligned.fasta -o input/ilp_db.hhm || { echo "$(date '+%Y-%m-%d %H:%M:%S') - hhmake failed" >> pipeline.log; exit 1; }
+
+# Clean up temporary files
+pigz -f input/ref_ILPs_raw.fasta input/ref_ILPs_curated.fasta input/ref_non_ILPs.fasta input/ref_combined.fasta input/ref_ILPs_temp.fasta input/ref_ILPs_temp_interpro.tsv input/ref_ILPs_aligned.fasta
 
 # Profiling and completion
 end_time=$(date +%s)

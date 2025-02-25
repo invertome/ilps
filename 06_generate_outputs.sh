@@ -9,11 +9,11 @@
 
 max_cpus=$(yq e '.max_cpus' config.yaml)
 start_time=$(date +%s)
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting 05_generate_outputs.sh" >> pipeline.log
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting 06_generate_outputs.sh" >> pipeline.log
 python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory before: {psutil.virtual_memory().percent}%', file=open('pipeline.log', 'a'))"
 
 if [ -f output/.done ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Skipping 05_generate_outputs.sh (already done)" >> pipeline.log
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Skipping 06_generate_outputs.sh (already done)" >> pipeline.log
     exit 0
 fi
 
@@ -36,5 +36,5 @@ python generate_structure_figures.py output/figures/ preprocess/ analysis/pdbs/ 
 end_time=$(date +%s)
 runtime=$((end_time - start_time))
 python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory after: {psutil.virtual_memory().percent}%', file=open('pipeline.log', 'a'))"
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 05_generate_outputs.sh completed in ${runtime}s" >> pipeline.log
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 06_generate_outputs.sh completed in ${runtime}s" >> pipeline.log
 touch output/.done

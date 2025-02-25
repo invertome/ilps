@@ -8,15 +8,33 @@ This pipeline identifies insulin-like peptides (ILPs) from transcriptomic data, 
 - **Hardware**: Multi-core CPU recommended; GPU optional for ColabFold
 
 ### Installation via Conda
+
 ```bash
-conda create -n ilp_pipeline python=3.9
+# Create and activate the base environment with Python 3.11 for SignalP 6
+conda create -n ilp_pipeline python=3.11
 conda activate ilp_pipeline
-conda install -c bioconda curl pigz seqkit transdecoder cd-hit mmseqs2 hhsuite hmmer blast interproscan mafft trimal fasttree iqtree meme taxonkit parallel mamba snakemake yq
-conda install -c conda-forge r-base r-ape ete3 autophy psutil pymol-open-source
-conda install -c anaconda pandas scikit-learn xgboost matplotlib seaborn
+
+# Add necessary channels
+conda config --append channels bioconda
+conda config --append channels conda-forge
+
+# Install core bioinformatics tools
+conda install -c bioconda curl pigz seqkit transdecoder cd-hit mmseqs2 hhsuite blast interproscan mafft trimal fasttree iqtree meme taxonkit parallel mamba snakemake yq
+
+# Install additional dependencies, including SignalP 6 requirements
+conda install -c conda-forge r-base r-ape ete3 autophy psutil pymol-open-source pillow numpy matplotlib tqdm pytorch=1.13
+conda install -c anaconda pandas scikit-learn xgboost seaborn
+
+# Install Python libraries via pip
 pip install biopython shap logomaker pyyaml
+
+# Install SignalP 6 manually (requires license from DTU Health Tech)
+# Download signalp-6.0h.fast.tar.gz from DTU Health Tech, then:
+# tar xfv signalp-6.0h.fast.tar.gz
+# cd signalp-6-package
+# pip install .
 # ColabFold requires separate installation (see https://github.com/sokrypton/ColabFold)
-# FoldTree requires custom installation (see https://github.com/DessimozLab/fold_tree)
+# FoldTree is integrated via Snakemake in the pipeline (see https://github.com/DessimozLab/fold_tree)
 ```
 
 ## Directory Structure

@@ -16,7 +16,7 @@ conda install -c conda-forge r-base r-ape ete3 autophy psutil pymol-open-source
 conda install -c anaconda pandas scikit-learn xgboost matplotlib seaborn
 pip install biopython shap logomaker pyyaml
 # ColabFold requires separate installation (see https://github.com/sokrypton/ColabFold)
-# FoldTree requires custom installation (see https://github.com/DessimozLab/fold_tree)
+# FoldTree requires custom installation (see https://github.com/DessimozLab/fold_tree)```
 
 ## Directory Structure
 - `input/`: Input FASTA files (e.g., `9606_T1.fasta`)

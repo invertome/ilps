@@ -68,5 +68,5 @@ pigz -f candidates/tmp/*
 end_time=$(date +%s)
 runtime=$((end_time - start_time))
 python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory after: {psutil.virtual_memory().percent}%', file=open('pipeline.log', 'a'))"
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 02_identify_candidates.sh completed in ${runtime}s" >> pipeline.log
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 03_identify_candidates.sh completed in ${runtime}s" >> pipeline.log
 touch candidates/.done

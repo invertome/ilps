@@ -10,11 +10,11 @@
 max_cpus=$(yq e '.max_cpus' config.yaml)
 interpro_path=$(yq e '.interpro_path' config.yaml)
 start_time=$(date +%s)
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting 02_identify_candidates.sh" >> pipeline.log
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting 03_identify_candidates.sh" >> pipeline.log
 python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory before: {psutil.virtual_memory().percent}%', file=open('pipeline.log', 'a'))"
 
 if [ -f candidates/.done ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Skipping 02_identify_candidates.sh (already done)" >> pipeline.log
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Skipping 03_identify_candidates.sh (already done)" >> pipeline.log
     exit 0
 fi
 

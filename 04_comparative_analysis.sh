@@ -4,7 +4,7 @@
 # Outputs: analysis/ (trees, pdbs/, clades_*, unaligned_*, aligned_*, plots_*)
 # Config: config.yaml (max_cpus)
 # Log: pipeline.log (progress, errors, profiling)
-# Notes: Generates all possible consensus trees from sequence and structural data
+# Notes: Generates all possible consensus trees from sequence and structural data; added dependency checks
 # Author: Jorge L. Pérez-Moreno, Ph.D., Katz Lab, University of Massachusetts, Amherst
 
 max_cpus=$(yq e '.max_cpus' config.yaml)
@@ -16,6 +16,12 @@ python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory before: 
 if [ -f analysis/.done_comparative ]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S') - Skipping 04_comparative_analysis.sh (already done)" >> pipeline.log
     exit 0
+fi
+
+# Check dependencies
+if ! command -v mamba >/dev/null 2>&1 || ! command -v snakemake >/dev/null 2>&1; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Error: mamba or snakemake not installed" >> pipeline.log
+    exit 1
 fi
 
 mkdir -p analysis/pdbs clades_ete_prepro clades_autophy_prepro clades_ete_pro clades_autophy_pro clades_ete_mature clades_autophy_mature analysis/unaligned_prepro analysis/aligned_prepro analysis/plots_prepro analysis/unaligned_pro analysis/aligned_pro analysis/plots_pro analysis/unaligned_mature analysis/aligned_mature analysis/plots_mature
@@ -54,7 +60,6 @@ echo "prepro pro mature" | parallel -j 3 --eta "\
     fi; \
     mv analysis/{}_iqtree.treefile analysis/{}_alignment.fasta.treefile"
 
-# Generate structural trees using Foldtree Snakemake workflow
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Generating structural trees with Foldtree" >> pipeline.log
 
 if [ ! -d "fold_tree" ]; then
@@ -82,30 +87,18 @@ done
 
 mamba deactivate
 
-# Generate all consensus trees
 for type in prepro pro mature; do
     echo "$(date '+%Y-%m-%d %H:%M:%S') - Generating consensus trees for $type" >> pipeline.log
-    
-    # Primary: Sequence + Foldtree
     Rscript consensus_tree_with_support.R "analysis/${type}_alignment.fasta.treefile" "analysis/${type}_foldtree.tre" "analysis/${type}_consensus_seq_foldtree.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Sequence + Foldtree consensus failed for $type" >> pipeline.log; exit 1; }
-    
-    # Exploratory: Sequence + LDDT, Sequence + TM
     Rscript consensus_tree_with_support.R "analysis/${type}_alignment.fasta.treefile" "analysis/${type}_lddt.tre" "analysis/${type}_consensus_seq_lddt.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Sequence + LDDT consensus failed for $type" >> pipeline.log; exit 1; }
     Rscript consensus_tree_with_support.R "analysis/${type}_alignment.fasta.treefile" "analysis/${type}_tm.tre" "analysis/${type}_consensus_seq_tm.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Sequence + TM consensus failed for $type" >> pipeline.log; exit 1; }
-    
-    # Structural combinations: Foldtree + LDDT, Foldtree + TM, LDDT + TM
     Rscript consensus_tree_with_support.R "analysis/${type}_foldtree.tre" "analysis/${type}_lddt.tre" "analysis/${type}_consensus_foldtree_lddt.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Foldtree + LDDT consensus failed for $type" >> pipeline.log; exit 1; }
     Rscript consensus_tree_with_support.R "analysis/${type}_foldtree.tre" "analysis/${type}_tm.tre" "analysis/${type}_consensus_foldtree_tm.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Foldtree + TM consensus failed for $type" >> pipeline.log; exit 1; }
     Rscript consensus_tree_with_support.R "analysis/${type}_lddt.tre" "analysis/${type}_tm.tre" "analysis/${type}_consensus_lddt_tm.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - LDDT + TM consensus failed for $type" >> pipeline.log; exit 1; }
-    
-    # Triple structural: Foldtree + LDDT + TM
     Rscript consensus_tree_with_support.R "analysis/${type}_foldtree.tre" "analysis/${type}_lddt.tre" "analysis/${type}_tm.tre" "analysis/${type}_consensus_foldtree_lddt_tm.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Foldtree + LDDT + TM consensus failed for $type" >> pipeline.log; exit 1; }
-    
-    # Full combination: Sequence + Foldtree + LDDT + TM
     Rscript consensus_tree_with_support.R "analysis/${type}_alignment.fasta.treefile" "analysis/${type}_foldtree.tre" "analysis/${type}_lddt.tre" "analysis/${type}_tm.tre" "analysis/${type}_consensus_all.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Sequence + Foldtree + LDDT + TM consensus failed for $type" >> pipeline.log; exit 1; }
 done
 
-# Additional consensus trees across types (prepro + pro, pro + mature, prepro + mature, all)
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Generating additional sequence consensus trees across types" >> pipeline.log
 Rscript consensus_tree_with_support.R analysis/prepro_alignment.fasta.treefile analysis/pro_alignment.fasta.treefile analysis/prepro_pro_seq_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Prepro + Pro (sequence) consensus failed" >> pipeline.log; exit 1; }
 Rscript consensus_tree_with_support.R analysis/pro_alignment.fasta.treefile analysis/mature_alignment.fasta.treefile analysis/pro_mature_seq_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Pro + Mature (sequence) consensus failed" >> pipeline.log; exit 1; }
@@ -118,7 +111,6 @@ Rscript consensus_tree_with_support.R analysis/pro_foldtree.tre analysis/mature_
 Rscript consensus_tree_with_support.R analysis/prepro_foldtree.tre analysis/mature_foldtree.tre analysis/prepro_mature_foldtree_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Prepro + Mature (Foldtree) consensus failed" >> pipeline.log; exit 1; }
 Rscript consensus_tree_with_support.R analysis/prepro_foldtree.tre analysis/pro_foldtree.tre analysis/mature_foldtree.tre analysis/all_foldtree_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - All three (Foldtree) consensus failed" >> pipeline.log; exit 1; }
 
-# Clade analysis
 for type in prepro pro mature; do
     echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting clade analysis for $type" >> pipeline.log
     python identify_clades.py "analysis/${type}_consensus_seq_foldtree.tre" "clades_ete_${type}/" "analysis/unaligned_${type}/" "analysis/aligned_${type}/" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - identify_clades.py failed for $type" >> pipeline.log; exit 1; }

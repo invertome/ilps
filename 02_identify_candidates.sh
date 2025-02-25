@@ -1,10 +1,10 @@
 #!/bin/bash
 # Purpose: Identify ILP candidates from preprocessed transcriptomes
-# Inputs: preprocess/*_preprocessed.fasta, input/ref_ILPs.fasta
+# Inputs: preprocess/*_preprocessed.fasta, input/ref_ILPs.fasta, input/ilp.hmm, input/ilp_db.hhm
 # Outputs: candidates/*_candidates.fasta, metadata files
 # Config: config.yaml (max_cpus, interpro_path)
 # Log: pipeline.log (progress, errors, profiling)
-# Notes: Caches BLAST and InterProScan results
+# Notes: Caches BLAST and InterProScan results; added input checks
 # Author: Jorge L. Pérez-Moreno, Ph.D., Katz Lab, University of Massachusetts, Amherst
 
 max_cpus=$(yq e '.max_cpus' config.yaml)
@@ -18,13 +18,20 @@ if [ -f candidates/.done ]; then
     exit 0
 fi
 
+# Check required input files
+for file in preprocess/[0-9]*_preprocessed.fasta input/ref_ILPs.fasta input/ilp.hmm input/ilp_db.hhm; do
+    if ! ls "$file" >/dev/null 2>&1; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - Error: $file not found" >> pipeline.log
+        exit 1
+    fi
+done
+
 mkdir -p candidates hhblits_db
 
-# Build HHblits database
 if [ ! -f hhblits_db/candidates_db ]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S') - Building HHblits database for candidates" >> pipeline.log
     cat preprocess/*_preprocessed.fasta > candidates/all_preprocessed.fasta
-    hhblits -i candidates/all_preprocessed.fasta -d uniclav -o /dev/null -cpu "$max_cpus"
+    hhblits -i candidates/all_preprocessed.fasta -d uniclav -o /dev/null -cpu "$max_cpus" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - HHblits database build failed" >> pipeline.log; exit 1; }
     mv uniclav* hhblits_db/
     ln -s hhblits_db/uniclav hhblits_db/candidates_db
 fi
@@ -41,7 +48,6 @@ for t in preprocess/[0-9]*_preprocessed.fasta; do
     pigz -f candidates/${base}_clust*
 done
 
-# Cached BLAST
 if [ ! -f candidates/all_blast.out ]; then
     makeblastdb -in input/ref_ILPs.fasta -dbtype prot -out input/ref_ILPs_db || { echo "$(date '+%Y-%m-%d %H:%M:%S') - makeblastdb failed" >> pipeline.log; exit 1; }
     blastp -query <(cat candidates/*_candidates.fasta) -db input/ref_ILPs_db -out candidates/all_blast.out -outfmt 6 -num_threads "$max_cpus" -evalue 1e-5 || { echo "$(date '+%Y-%m-%d %H:%M:%S') - BLAST failed" >> pipeline.log; exit 1; }
@@ -51,7 +57,6 @@ for f in candidates/*_candidates.fasta; do
     grep "^${base}_" candidates/all_blast.out > "candidates/${base}_blast.out"
 done
 
-# Cached InterProScan
 ls candidates/*_candidates.fasta | while read -r f; do
     base=$(basename "$f" .fasta)
     if [ ! -f "candidates/${base}_interpro.tsv" ]; then

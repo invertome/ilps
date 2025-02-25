@@ -1,35 +1,40 @@
 #!/bin/bash
-# Purpose: Generate tables and plots for manuscript, separated by sequence type (prepro, pro, mature)
-# Inputs: 
-#   - analysis/features.csv (candidate features)
-#   - analysis/predictions.csv (ML probabilities)
-#   - analysis/novel_candidates.csv (novelty flags)
-#   - candidates/*_blast.out, candidates/*_interpro.tsv (metadata)
-#   - clades_ete_*/, clades_autophy_* (clade data)
-# Outputs: 
-#   - output/*/*.csv (tables: overview, details, motif enrichment)
-#   - output/*/*.png (plots: counts, heatmap, violin, logos)
-# Log: pipeline.log
-# Notes: Processes prepro, pro, and mature types independently
+# Purpose: Generate tables, plots, FASTA files, metadata TSV, and 3D figures for manuscript
+# Inputs: analysis/features.csv, analysis/predictions.csv, analysis/novel_candidates.csv, candidates/*_blast.out, candidates/*_interpro.tsv, clades_*
+# Outputs: output/*/*.csv, output/*/*.png, output/*/ilps.fasta, output/comparative_metadata.tsv, output/figures/*.png
+# Config: config.yaml (max_cpus)
+# Log: pipeline.log (progress, errors, profiling)
+# Notes: Added PyMOL dependency check
 # Author: Jorge L. Pérez-Moreno, Ph.D., Katz Lab, University of Massachusetts, Amherst
 
+max_cpus=$(yq e '.max_cpus' config.yaml)
+start_time=$(date +%s)
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting 05_generate_outputs.sh" >> pipeline.log
+python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory before: {psutil.virtual_memory().percent}%', file=open('pipeline.log', 'a'))"
+
 if [ -f output/.done ]; then
-    echo "$(date) - Skipping 05_generate_outputs.sh (already done)" >> pipeline.log
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Skipping 05_generate_outputs.sh (already done)" >> pipeline.log
     exit 0
 fi
 
-# Set up output directories for each type
-mkdir -p output/prepro output/pro output/mature
-echo "$(date) - Starting 05_generate_outputs.sh" >> pipeline.log
+# Check PyMOL dependency
+if ! command -v pymol >/dev/null 2>&1; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Error: PyMOL not installed" >> pipeline.log
+    exit 1
+fi
 
-# Generate tables and plots for each sequence type
-python generate_tables.py analysis/features.csv analysis/predictions.csv analysis/novel_candidates.csv candidates/[0-9]*_blast.out candidates/[0-9]*_interpro.tsv clades_ete_prepro/ clades_autophy_prepro/ output/prepro || { echo "$(date) - generate_tables.py failed for prepro" >> pipeline.log; exit 1; }
-python generate_tables.py analysis/features.csv analysis/predictions.csv analysis/novel_candidates.csv candidates/[0-9]*_blast.out candidates/[0-9]*_interpro.tsv clades_ete_pro/ clades_autophy_pro/ output/pro || { echo "$(date) - generate_tables.py failed for pro" >> pipeline.log; exit 1; }
-python generate_tables.py analysis/features.csv analysis/predictions.csv analysis/novel_candidates.csv candidates/[0-9]*_blast.out candidates/[0-9]*_interpro.tsv clades_ete_mature/ clades_autophy_mature/ output/mature || { echo "$(date) - generate_tables.py failed for mature" >> pipeline.log; exit 1; }
+mkdir -p output/prepro output/pro output/mature output/figures
 
-python generate_plots.py analysis/features.csv analysis/predictions.csv analysis/novel_candidates.csv clades_ete_prepro/ clades_autophy_prepro/ output/prepro || { echo "$(date) - generate_plots.py failed for prepro" >> pipeline.log; exit 1; }
-python generate_plots.py analysis/features.csv analysis/predictions.csv analysis/novel_candidates.csv clades_ete_pro/ clades_autophy_pro/ output/pro || { echo "$(date) - generate_plots.py failed for pro" >> pipeline.log; exit 1; }
-python generate_plots.py analysis/features.csv analysis/predictions.csv analysis/novel_candidates.csv clades_ete_mature/ clades_autophy_mature/ output/mature || { echo "$(date) - generate_plots.py failed for mature" >> pipeline.log; exit 1; }
+for type in prepro pro mature; do
+    python generate_tables.py analysis/features.csv analysis/predictions.csv analysis/novel_candidates.csv candidates/[0-9]*_blast.out candidates/[0-9]*_interpro.tsv clades_ete_${type}/ clades_autophy_${type}/ output/${type} || { echo "$(date '+%Y-%m-%d %H:%M:%S') - generate_tables.py failed for ${type}" >> pipeline.log; exit 1; }
+    python generate_plots.py analysis/features.csv analysis/predictions.csv analysis/novel_candidates.csv clades_ete_${type}/ clades_autophy_${type}/ output/${type} || { echo "$(date '+%Y-%m-%d %H:%M:%S') - generate_plots.py failed for ${type}" >> pipeline.log; exit 1; }
+done
 
-echo "$(date) - 05_generate_outputs.sh completed" >> pipeline.log
+python generate_output_fasta_and_metadata.py analysis/ilp_candidates.fasta analysis/ref_ILPs_filtered.fasta analysis/features.csv analysis/predictions.csv analysis/novel_candidates.csv candidates/[0-9]*_interpro.tsv input/[0-9]*_*.fasta output/ || { echo "$(date '+%Y-%m-%d %H:%M:%S') - generate_output_fasta_and_metadata.py failed" >> pipeline.log; exit 1; }
+python generate_structure_figures.py output/figures/ preprocess/ analysis/pdbs/ || { echo "$(date '+%Y-%m-%d %H:%M:%S') - generate_structure_figures.py failed" >> pipeline.log; exit 1; }
+
+end_time=$(date +%s)
+runtime=$((end_time - start_time))
+python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory after: {psutil.virtual_memory().percent}%', file=open('pipeline.log', 'a'))"
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 05_generate_outputs.sh completed in ${runtime}s" >> pipeline.log
 touch output/.done

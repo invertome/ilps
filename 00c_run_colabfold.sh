@@ -4,7 +4,7 @@
 # Outputs: preprocess/*.pdb, analysis/pdbs/*.pdb
 # Config: config.yaml (max_cpus, colabfold_path)
 # Log: pipeline.log (progress, errors, profiling)
-# Notes: Includes checkpointing for error recovery
+# Notes: Includes checkpointing for error recovery; added input checks
 # Author: Jorge L. Pérez-Moreno, Ph.D., Katz Lab, University of Massachusetts, Amherst
 
 max_cpus=$(yq e '.max_cpus' config.yaml)
@@ -18,28 +18,31 @@ if [ -f colabfold.done ]; then
     exit 0
 fi
 
-# Checkpoint file
+# Check for at least one input FASTA file
+if ! ls preprocess/*_{prepro,pro,mature}.fasta >/dev/null 2>&1 && [ ! -d analysis/pdbs ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Error: No input FASTA files found in preprocess/ or analysis/pdbs/" >> pipeline.log
+    exit 1
+fi
+
 checkpoint="colabfold_checkpoint.txt"
 touch "$checkpoint"
 
 for type in prepro pro mature; do
     echo "$(date '+%Y-%m-%d %H:%M:%S') - Modeling $type sequences" >> pipeline.log
-    # Process reference sequences
-    ls preprocess/*_${type}.fasta | while read -r fasta; do
+    ls preprocess/*_${type}.fasta 2>/dev/null | while read -r fasta; do
         pdb="preprocess/$(basename "$fasta" .fasta).pdb"
         if ! grep -q "$pdb" "$checkpoint" && [ ! -f "$pdb" ]; then
             "$colabfold_path" "$fasta" "$(dirname "$pdb")" --num-recycle 3 --model-type alphafold2_multimer_v3 --disulfide || { echo "$(date '+%Y-%m-%d %H:%M:%S') - ColabFold failed for $fasta" >> pipeline.log; exit 1; }
-            mv "$(dirname "$pdb")/predict_*.pdb" "$pdb"
+            mv "$(dirname "$pdb")/predict_*.pdb" "$pdb" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Failed to move ColabFold output for $fasta" >> pipeline.log; exit 1; }
             echo "$pdb" >> "$checkpoint"
         fi
     done
-    # Process candidate sequences if directory exists
     if [ -d analysis/pdbs ]; then
-        ls analysis/pdbs/*_${type}.fasta | while read -r fasta; do
+        ls analysis/pdbs/*_${type}.fasta 2>/dev/null | while read -r fasta; do
             pdb="analysis/pdbs/$(basename "$fasta" .fasta).pdb"
             if ! grep -q "$pdb" "$checkpoint" && [ ! -f "$pdb" ]; then
                 "$colabfold_path" "$fasta" "$(dirname "$pdb")" --num-recycle 3 --model-type alphafold2_multimer_v3 --disulfide || { echo "$(date '+%Y-%m-%d %H:%M:%S') - ColabFold failed for $fasta" >> pipeline.log; exit 1; }
-                mv "$(dirname "$pdb")/predict_*.pdb" "$pdb"
+                mv "$(dirname "$pdb")/predict_*.pdb" "$pdb" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Failed to move ColabFold output for $fasta" >> pipeline.log; exit 1; }
                 echo "$pdb" >> "$checkpoint"
             fi
         done

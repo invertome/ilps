@@ -1,0 +1,13 @@
+# Configuration file for ILP pipeline
+max_cpus: 16           # Maximum CPUs to use
+ilp_prob_threshold: 0.7 # ML probability threshold for ILP classification
+hhsearch_novel_threshold: 70 # HHsearch probability threshold for novelty
+blast_novel_threshold: 30   # BLAST identity threshold for novelty
+signalp_path: "signalp6"    # Path to SignalP executable
+interpro_path: "interproscan.sh" # Path to InterProScan executable
+colabfold_path: "colabfold_batch" # Path to ColabFold executable
+tmalign_refs:              # TM-align reference structures
+  dynamic: "preprocess/ref_structure.pdb"
+  1TRZ: "references/1TRZ.pdb"
+  6RLX: "references/6RLX.pdb"
+  bombyxin: "references/bombyxin.pdb"

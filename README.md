@@ -40,31 +40,32 @@ pip install biopython shap logomaker pyyaml
 - **Output**: `preprocess/ref_features.csv`, `preprocess/ref_labels.csv`, `preprocess/*_{type}.fasta`.
 - **Details**: Optimizes with multi-threading (`-T $max_cpus`) and chunked processing in Python scripts.
 
-### 00c_run_colabfold.sh
-- **Purpose**: Generates structural models for all sequence types.
-- **Process**: Runs ColabFold (`run_alphafold2.py`) on prepro, pro, and mature FASTA files from `preprocess/` and `analysis/pdbs/`, skipping existing PDBs for efficiency.
-- **Output**: `preprocess/*.pdb`, `analysis/pdbs/*.pdb`.
-- **Details**: Uses `parallel` with incremental checks (`[ -f ... ] || ...`) to avoid redundant runs, leveraging GPU if available.
-
 ### 01_preprocess.sh
 - **Purpose**: Preprocesses input transcriptomes.
 - **Process**: Translates nucleotide sequences with `TransDecoder` if needed, filters by length based on reference ILPs (`calc_ref_lengths.py`), deduplicates with `CD-HIT`.
 - **Output**: `preprocess/*_preprocessed.fasta`.
 - **Details**: Multi-threaded with `seqkit` and `TransDecoder` for efficiency.
+  
+### 02_run_colabfold.sh
+- **Purpose**: Generates structural models for reference and candidate sequences.
+- **Process**: Runs ColabFold on prepro, pro, and mature FASTA files from `preprocess/` (training) and `analysis/pdbs/` (candidates), skipping existing PDBs with checkpointing.
+- **Inputs**: `preprocess/*_{type}.fasta` (from `00b`), `analysis/pdbs/*_{type}.fasta` (from `05`).
+- **Output**: `preprocess/*.pdb`, `analysis/pdbs/*.pdb`.
+- **Details**: Uses `parallel` with incremental checks, GPU support optional, validates inputs; runs after training preparation to support feature extraction and again for candidate structures.
 
-### 02_identify_candidates.sh
+### 03_identify_candidates.sh
 - **Purpose**: Identifies ILP candidates from preprocessed transcriptomes.
 - **Process**: Clusters with `linclust`, searches with `HHblits` and `HMMER`, builds HMM profiles, performs batched BLAST, and annotates domains with InterProScan in parallel.
 - **Output**: `candidates/*_candidates.fasta`, metadata files (`*_hhblits.out`, etc.).
 - **Details**: Optimizes with `parallel` for InterProScan and batched BLAST for speed.
 
-### 03_annotate_and_novel.sh
+### 04_annotate_and_novel.sh
 - **Purpose**: Annotates candidates with ML predictions and identifies novel ILPs.
 - **Process**: Combines candidates into `analysis/all_candidates.fasta`, extracts features with `extract_features.py`, runs ML models (`run_ml.py`) to predict probabilities and novelty.
 - **Output**: `analysis/features.csv`, `analysis/predictions.csv`, `analysis/novel_candidates.csv`.
 - **Details**: See ML section below for specifics.
 
-### 04_comparative_analysis.sh
+### 05_comparative_analysis.sh
 - **Purpose**: Performs phylogenetic and structural analysis.
 - **Process**: 
   - Filters candidates to ILPs (`filter_ilps.py`).
@@ -75,7 +76,7 @@ pip install biopython shap logomaker pyyaml
 - **Output**: `analysis/` (trees, PDBs, clades, plots).
 - **Details**: Optimized with `parallel -j 3` to limit concurrent runs, allocating more CPUs per task (e.g., MAFFT, IQ-TREE) for better multi-threading efficiency; caches alignments to speed re-runs.
 
-### 05_generate_outputs.sh
+### 06_generate_outputs.sh
 - **Purpose**: Generates final tables and plots.
 - **Process**: Runs `generate_tables.py` and `generate_plots.py` for each type (prepro, pro, mature).
 - **Output**: `output/*/*.csv` (overview, details, motif enrichment), `output/*/*.png` (counts, heatmap, violin, logos).

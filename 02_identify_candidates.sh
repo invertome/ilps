@@ -34,4 +34,34 @@ for t in preprocess/[0-9]*_preprocessed.fasta; do
     echo "$(date '+%Y-%m-%d %H:%M:%S') - Identifying candidates for $t" >> pipeline.log
     mmseqs linclust "$t" "candidates/${base}_clust" candidates/tmp --min-seq-id 0.95 --threads "$max_cpus" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - MMseqs2 linclust failed for $t" >> pipeline.log; exit 1; }
     hhblits -i "candidates/${base}_clust_rep_seq.fasta" -d hhblits_db/candidates_db -o "candidates/${base}_hhblits.out" -n 3 -cpu "$max_cpus" -v 1 || { echo "$(date '+%Y-%m-%d %H:%M:%S') - HHblits failed for $t" >> pipeline.log; exit 1; }
-    hmmsearch -o "candidates/${base}_hmm.out" --cpu "$max_cpus" input/ilp.hmm "candidates/${base}_clust_rep_seq.fasta
+    hmmsearch -o "candidates/${base}_hmm.out" --cpu "$max_cpus" input/ilp.hmm "candidates/${base}_clust_rep_seq.fasta" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - HMMER failed for $t" >> pipeline.log; exit 1; }
+    python combine_hits.py "candidates/${base}_hhblits.out" "candidates/${base}_hmm.out" "candidates/${base}_candidates.fasta" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - combine_hits.py failed for $t" >> pipeline.log; exit 1; }
+    hhmake -i "candidates/${base}_candidates.fasta" -o "candidates/${base}_candidates.hhm" -v 0 || { echo "$(date '+%Y-%m-%d %H:%M:%S') - hhmake failed for $t" >> pipeline.log; exit 1; }
+    hhsearch -i "candidates/${base}_candidates.hhm" -d input/ilp_db.hhm -o "candidates/${base}_hhsearch.out" -cpu "$max_cpus" -v 1 || { echo "$(date '+%Y-%m-%d %H:%M:%S') - HHsearch failed for $t" >> pipeline.log; exit 1; }
+    pigz -f candidates/${base}_clust*
+done
+
+# Cached BLAST
+if [ ! -f candidates/all_blast.out ]; then
+    makeblastdb -in input/ref_ILPs.fasta -dbtype prot -out input/ref_ILPs_db || { echo "$(date '+%Y-%m-%d %H:%M:%S') - makeblastdb failed" >> pipeline.log; exit 1; }
+    blastp -query <(cat candidates/*_candidates.fasta) -db input/ref_ILPs_db -out candidates/all_blast.out -outfmt 6 -num_threads "$max_cpus" -evalue 1e-5 || { echo "$(date '+%Y-%m-%d %H:%M:%S') - BLAST failed" >> pipeline.log; exit 1; }
+fi
+for f in candidates/*_candidates.fasta; do
+    base=$(basename "$f" _candidates.fasta)
+    grep "^${base}_" candidates/all_blast.out > "candidates/${base}_blast.out"
+done
+
+# Cached InterProScan
+ls candidates/*_candidates.fasta | while read -r f; do
+    base=$(basename "$f" .fasta)
+    if [ ! -f "candidates/${base}_interpro.tsv" ]; then
+        "$interpro_path" -i "$f" -dp -f tsv -iprlookup -goterms -pa -cpu 1 > "candidates/${base}_interpro.tsv" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - InterProScan failed for $f" >> pipeline.log; exit 1; }
+    fi
+done
+
+pigz -f candidates/tmp/*
+end_time=$(date +%s)
+runtime=$((end_time - start_time))
+python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory after: {psutil.virtual_memory().percent}%', file=open('pipeline.log', 'a'))"
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 02_identify_candidates.sh completed in ${runtime}s" >> pipeline.log
+touch candidates/.done

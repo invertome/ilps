@@ -1,40 +1,33 @@
 #!/bin/bash
-# Purpose: Perform comparative and phylogenetic analysis on ILP candidates for prepropeptides, propeptides, and mature peptides
-# Inputs: 
-#   - analysis/all_candidates.fasta (all candidates)
-#   - analysis/predictions.csv (ML probabilities)
-#   - analysis/novel_candidates.csv (novelty flags)
-# Outputs: 
-#   - analysis/ (trees, pdbs/, clades_ete_*/, clades_autophy_*/, unaligned_*/aligned_*/plots_*)
-#   - Multiple consensus trees (sequence and structural combinations for all types)
-# Log: pipeline.log
-# Notes: Builds models and structural trees for all types; includes trimming, parallel structural tree generation, and optimized CPU allocation
+# Purpose: Perform comparative and phylogenetic analysis on ILP candidates
+# Inputs: analysis/all_candidates.fasta, analysis/predictions.csv, analysis/novel_candidates.csv
+# Outputs: analysis/ (trees, pdbs/, clades_*, unaligned_*, aligned_*, plots_*)
+# Config: config.yaml (max_cpus)
+# Log: pipeline.log (progress, errors, profiling)
+# Notes: Checkpointing for IQ-TREE, optimized CPU allocation
 # Author: Jorge L. Pérez-Moreno, Ph.D., Katz Lab, University of Massachusetts, Amherst
+
+max_cpus=$(yq e '.max_cpus' config.yaml)
+cpus_per_task=$((max_cpus / 3))
+start_time=$(date +%s)
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting 04_comparative_analysis.sh with $cpus_per_task CPUs per task" >> pipeline.log
+python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory before: {psutil.virtual_memory().percent}%', file=open('pipeline.log', 'a'))"
 
 if [ -f analysis/.done_comparative ]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S') - Skipping 04_comparative_analysis.sh (already done)" >> pipeline.log
     exit 0
 fi
 
-# Set up directories for each sequence type
 mkdir -p analysis/pdbs clades_ete_prepro clades_autophy_prepro clades_ete_pro clades_autophy_pro clades_ete_mature clades_autophy_mature analysis/unaligned_prepro analysis/aligned_prepro analysis/plots_prepro analysis/unaligned_pro analysis/aligned_pro analysis/plots_pro analysis/unaligned_mature analysis/aligned_mature analysis/plots_mature
-max_cpus=$(nproc)
-cpus_per_task=$((max_cpus / 3))  # Allocate CPUs per task, limiting to 3 concurrent runs for efficiency
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting 04_comparative_analysis.sh with $cpus_per_task CPUs per task" >> pipeline.log
 
-# Filter candidates to ILPs based on ML probability (> 0.7)
 python filter_ilps.py analysis/all_candidates.fasta analysis/predictions.csv analysis/ilp_candidates.fasta || { echo "$(date '+%Y-%m-%d %H:%M:%S') - filter_ilps.py failed" >> pipeline.log; exit 1; }
-
-# Determine highest common taxonomic rank for reference filtering
 python determine_common_taxonomy.py input/[0-9]*_*.fasta analysis/common_taxonomy.txt || { echo "$(date '+%Y-%m-%d %H:%M:%S') - determine_common_taxonomy.py failed" >> pipeline.log; exit 1; }
 common_rank=$(cat analysis/common_taxonomy.txt | cut -d' ' -f1)
 common_taxid=$(cat analysis/common_taxonomy.txt | cut -d' ' -f2)
 
-# Filter reference ILPs to common taxonomy and prepare for modeling
 python filter_ref_ilps_by_taxonomy.py input/ref_ILPs.fasta "$common_taxid" analysis/ref_ILPs_filtered.fasta || { echo "$(date '+%Y-%m-%d %H:%M:%S') - filter_ref_ilps_by_taxonomy.py failed" >> pipeline.log; exit 1; }
 
-# Generate FASTA files for all sequence types (prepro, pro, mature) for references and candidates
-mkdir -p analysis/pdbs
+# Generate FASTA files for all sequence types
 for type in prepro pro mature; do
     for seq in $(seqkit seq -n analysis/ref_ILPs_filtered.fasta); do
         python preprocess_ilp.py analysis/ref_ILPs_filtered.fasta "$seq" "$type" "preprocess/${type}_${seq}.fasta" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - preprocess_ilp.py failed for $type (reference)" >> pipeline.log; exit 1; }
@@ -44,7 +37,9 @@ for type in prepro pro mature; do
     done
 done
 
-# Process each sequence type (prepro, pro, mature) with optimized parallelization
+# Process sequence types with checkpointing
+checkpoint="iqtree_checkpoint.txt"
+touch "$checkpoint"
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Processing sequence alignments and trees" >> pipeline.log
 echo "prepro pro mature" | parallel -j 3 --eta "\
     echo \"$(date '+%Y-%m-%d %H:%M:%S') - Starting processing for {}\"; \
@@ -57,35 +52,36 @@ echo "prepro pro mature" | parallel -j 3 --eta "\
     fi; \
     echo \"$(date '+%Y-%m-%d %H:%M:%S') - Running FastTree for {}\"; \
     FastTree -lg -nt -fastest analysis/{}_alignment_trimmed.fasta > analysis/{}_fasttree.tre || { echo \"$(date '+%Y-%m-%d %H:%M:%S') - FastTree failed for {}\"; exit 1; }; \
-    echo \"$(date '+%Y-%m-%d %H:%M:%S') - Running IQ-TREE for {}\"; \
-    iqtree -s analysis/{}_alignment_trimmed.fasta -m TEST -abayes -B 10000 -bnni -T $cpus_per_task -t analysis/{}_fasttree.tre -pre analysis/{}_iqtree --redo || { echo \"$(date '+%Y-%m-%d %H:%M:%S') - IQ-TREE failed for {}\"; exit 1; }; \
+    if ! grep -q analysis/{}_iqtree.treefile $checkpoint; then \
+        echo \"$(date '+%Y-%m-%d %H:%M:%S') - Running IQ-TREE for {}\"; \
+        iqtree -s analysis/{}_alignment_trimmed.fasta -m TEST -abayes -B 10000 -bnni -T $cpus_per_task -t analysis/{}_fasttree.tre -pre analysis/{}_iqtree --redo || { echo \"$(date '+%Y-%m-%d %H:%M:%S') - IQ-TREE failed for {}\"; exit 1; }; \
+        echo analysis/{}_iqtree.treefile >> $checkpoint; \
+    fi; \
     mv analysis/{}_iqtree.treefile analysis/{}_alignment.fasta.treefile"
 
-# Generate structural trees in parallel for all types with fewer concurrent runs
+# Generate structural trees
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Generating structural trees" >> pipeline.log
 echo "prepro pro mature" | parallel -j 3 --eta "foldtree -i analysis/pdbs/ -o analysis/{}_structural_tree.tre -type {}" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - FoldTree failed" >> pipeline.log; exit 1; }
 
-# Generate consensus trees for each type
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Generating per-type consensus trees" >> pipeline.log
+# Generate consensus trees
 for type in prepro pro mature; do
     Rscript consensus_tree.R "analysis/${type}_alignment.fasta.treefile" "analysis/${type}_structural_tree.tre" "analysis/${type}_consensus_tree.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - consensus_tree.R failed for $type" >> pipeline.log; exit 1; }
 done
 
-# Generate additional consensus trees for sequence combinations
+# Additional consensus trees
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Generating additional sequence consensus trees" >> pipeline.log
 Rscript consensus_tree.R analysis/prepro_alignment.fasta.treefile analysis/pro_alignment.fasta.treefile analysis/prepro_pro_seq_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - consensus_tree.R failed for prepro + pro (sequence)" >> pipeline.log; exit 1; }
 Rscript consensus_tree.R analysis/pro_alignment.fasta.treefile analysis/mature_alignment.fasta.treefile analysis/pro_mature_seq_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - consensus_tree.R failed for pro + mature (sequence)" >> pipeline.log; exit 1; }
 Rscript consensus_tree.R analysis/prepro_alignment.fasta.treefile analysis/mature_alignment.fasta.treefile analysis/prepro_mature_seq_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - consensus_tree.R failed for prepro + mature (sequence)" >> pipeline.log; exit 1; }
 Rscript consensus_tree.R analysis/prepro_alignment.fasta.treefile analysis/pro_alignment.fasta.treefile analysis/mature_alignment.fasta.treefile analysis/all_seq_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - consensus_tree.R failed for all three (sequence)" >> pipeline.log; exit 1; }
 
-# Generate additional consensus trees for structural combinations
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Generating additional structural consensus trees" >> pipeline.log
 Rscript consensus_tree.R analysis/prepro_structural_tree.tre analysis/pro_structural_tree.tre analysis/prepro_pro_struct_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - consensus_tree.R failed for prepro + pro (structural)" >> pipeline.log; exit 1; }
 Rscript consensus_tree.R analysis/pro_structural_tree.tre analysis/mature_structural_tree.tre analysis/pro_mature_struct_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - consensus_tree.R failed for pro + mature (structural)" >> pipeline.log; exit 1; }
 Rscript consensus_tree.R analysis/prepro_structural_tree.tre analysis/mature_structural_tree.tre analysis/prepro_mature_struct_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - consensus_tree.R failed for prepro + mature (structural)" >> pipeline.log; exit 1; }
 Rscript consensus_tree.R analysis/prepro_structural_tree.tre analysis/pro_structural_tree.tre analysis/mature_structural_tree.tre analysis/all_struct_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - consensus_tree.R failed for all three (structural)" >> pipeline.log; exit 1; }
 
-# Clade analysis with ETE and Autophy for each type
+# Clade analysis
 for type in prepro pro mature; do
     echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting clade analysis for $type" >> pipeline.log
     python identify_clades.py "analysis/${type}_alignment.fasta.treefile" "clades_ete_${type}/" "analysis/unaligned_${type}/" "analysis/aligned_${type}/" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - identify_clades.py failed for $type" >> pipeline.log; exit 1; }
@@ -100,5 +96,8 @@ for type in prepro pro mature; do
     done
 done
 
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 04_comparative_analysis.sh completed" >> pipeline.log
+end_time=$(date +%s)
+runtime=$((end_time - start_time))
+python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory after: {psutil.virtual_memory().percent}%', file=open('pipeline.log', 'a'))"
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 04_comparative_analysis.sh completed in ${runtime}s" >> pipeline.log
 touch analysis/.done_comparative

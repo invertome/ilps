@@ -10,11 +10,11 @@
 max_cpus=$(yq e '.max_cpus' config.yaml)
 cpus_per_task=$((max_cpus / 3))
 start_time=$(date +%s)
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting 04_comparative_analysis.sh with $cpus_per_task CPUs per task" >> pipeline.log
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting 05_comparative_analysis.sh with $cpus_per_task CPUs per task" >> pipeline.log
 python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory before: {psutil.virtual_memory().percent}%', file=open('pipeline.log', 'a'))"
 
 if [ -f analysis/.done_comparative ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Skipping 04_comparative_analysis.sh (already done)" >> pipeline.log
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Skipping 05_comparative_analysis.sh (already done)" >> pipeline.log
     exit 0
 fi
 
@@ -128,5 +128,5 @@ done
 end_time=$(date +%s)
 runtime=$((end_time - start_time))
 python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory after: {psutil.virtual_memory().percent}%', file=open('pipeline.log', 'a'))"
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 04_comparative_analysis.sh completed in ${runtime}s" >> pipeline.log
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 05_comparative_analysis.sh completed in ${runtime}s" >> pipeline.log
 touch analysis/.done_comparative

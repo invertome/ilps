@@ -3,15 +3,15 @@
 This pipeline identifies insulin-like peptides (ILPs) from transcriptomic data, performs machine learning-based annotation, and conducts phylogenetic analysis across prepropeptide, propeptide, and mature peptide forms. It is optimized for efficiency and scalability, leveraging parallel processing and memory-efficient techniques.
 
 ## Prerequisites
-- **Tools**: `curl`, `pigz`, `seqkit`, `TransDecoder`, `cd-hit`, `mmseqs2`, `hhblits`, `hmmsearch`, `hhmake`, `hhsearch`, `blastp`, `interproscan.sh`, `signalp6`, `colabfold_batch`, `mafft`, `trimal`, `FastTree`, `iqtree`, `foldtree`, `R` (with `ape` package), `ete3`, `autophy`, `meme`, `ame`, `fimo`, `taxonkit`, `parallel`
-- **Python Libraries**: `BioPython`, `pandas`, `scikit-learn`, `xgboost`, `shap`, `matplotlib`, `seaborn`, `logomaker`, `psutil`
+- **Tools**: `curl`, `pigz`, `seqkit`, `TransDecoder`, `cd-hit`, `mmseqs2`, `hhblits`, `hmmsearch`, `hhmake`, `hmmbuild`, `hhsearch`, `blastp`, `interproscan.sh`, `signalp6`, `colabfold_batch`, `mafft`, `trimal`, `FastTree`, `iqtree`, `foldtree`, `R` (with `ape` package), `ete3`, `autophy`, `meme`, `ame`, `fimo`, `taxonkit`, `parallel`, `mamba`, `snakemake`, `pymol`, `yq`
+- **Python Libraries**: `BioPython`, `pandas`, `scikit-learn`, `xgboost`, `shap`, `matplotlib`, `seaborn`, `logomaker`, `psutil`, `pyyaml`
 - **Hardware**: Multi-core CPU recommended; GPU optional for ColabFold
 
 ### Installation via Conda
 ```bash
 conda create -n ilp_pipeline python=3.9
 conda activate ilp_pipeline
-conda install -c bioconda curl pigz seqkit transdecoder cd-hit mmseqs2 hh-suite hmmer blast interproscan signalp6 mafft trimal fasttree iqtree meme taxonkit parallel
+conda install -c bioconda curl pigz seqkit transdecoder cd-hit mmseqs2 hh-suite hmmer blast interproscan signalp6 mafft trimal fasttree iqtree meme taxonkit parallel mamba snakemake yq
 conda install -c conda-forge r-base r-ape ete3 autophy psutil pymol-open-source
 conda install -c anaconda pandas scikit-learn xgboost matplotlib seaborn
 pip install biopython shap logomaker pyyaml

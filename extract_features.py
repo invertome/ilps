@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # Purpose: Extract features from candidate ILPs for ML prediction
-# Inputs: analysis/all_candidates.fasta (combined candidates)
-# Output: analysis/features.csv (feature matrix)
-# Notes: Similar to training features but uses candidate-specific outputs; includes TM-scores for all types; uses chunked processing
+# Inputs: analysis/all_candidates.fasta
+# Output: analysis/features.csv
+# Notes: Adds physicochemical properties and pLDDT scores; chunked processing
 # Author: Jorge L. Pérez-Moreno, Ph.D., Katz Lab, University of Massachusetts, Amherst
 
 import pandas as pd
@@ -12,14 +12,19 @@ import subprocess
 import sys
 import os
 import statistics
+from Bio.SeqUtils.ProtParam import ProteinAnalysis
+import yaml
 
 fasta = sys.argv[1]
 output_file = sys.argv[2]
+with open("config.yaml") as f:
+    config = yaml.safe_load(f)
+
 features = pd.DataFrame()
 seqs = list(SeqIO.parse(fasta, "fasta"))
 features["id"] = [s.id for s in seqs]
 
-# HHblits probabilities from candidate searches
+# HHblits probabilities
 hhblits_data = {}
 for f in glob.glob("candidates/*_hhblits.out"):
     tax_id = os.path.basename(f).split("_")[0]
@@ -31,7 +36,7 @@ for f in glob.glob("candidates/*_hhblits.out"):
                 hhblits_data[f"{tax_id}_{id_}"] = prob
 features["hhblits_prob"] = features["id"].map(hhblits_data).fillna(0)
 
-# HMMER scores from candidate searches
+# HMMER scores
 hmm_data = {}
 for f in glob.glob("candidates/*_hmm.out"):
     tax_id = os.path.basename(f).split("_")[0]
@@ -43,7 +48,7 @@ for f in glob.glob("candidates/*_hmm.out"):
                 hmm_data[f"{tax_id}_{id_}"] = score
 features["hmm_score"] = features["id"].map(hmm_data).fillna(0)
 
-# HHsearch probabilities from candidate searches
+# HHsearch probabilities
 hhsearch_data = {}
 for f in glob.glob("candidates/*_hhsearch.out"):
     tax_id = os.path.basename(f).split("_")[0]
@@ -55,7 +60,7 @@ for f in glob.glob("candidates/*_hhsearch.out"):
                 hhsearch_data[f"{tax_id}_{id_}"] = prob
 features["hhsearch_prob"] = features["id"].map(hhsearch_data).fillna(0)
 
-# BLAST identity from candidate searches (chunked reading)
+# BLAST identity
 blast_data = {}
 for f in glob.glob("candidates/*_blast.out"):
     tax_id = os.path.basename(f).split("_")[0]
@@ -64,24 +69,24 @@ for f in glob.glob("candidates/*_blast.out"):
             blast_data[f"{tax_id}_{row[0]}"] = row[2]
 features["blast_identity"] = features["id"].map(blast_data).fillna(0)
 
-# TM-scores with multiple references for all types
-ref_pdbs = {
-    "dynamic": "preprocess/ref_structure.pdb",
-    "1TRZ": "references/1TRZ.pdb",
-    "6RLX": "references/6RLX.pdb",
-    "bombyxin": "references/bombyxin.pdb"
-}
+# Physicochemical properties
+features["hydrophobicity"] = [ProteinAnalysis(str(s.seq)).gravy() for s in seqs]
+features["charge"] = [ProteinAnalysis(str(s.seq)).charge_at_pH(7.0) for s in seqs]
 
+# TM-scores and pLDDT scores
+ref_pdbs = config["tmalign_refs"]
 os.makedirs("references", exist_ok=True)
-if not os.path.exists("references/1TRZ.pdb"):
-    subprocess.run(["wget", "-O", "references/1TRZ.pdb", "https://files.rcsb.org/download/1TRZ.pdb"])
-if not os.path.exists("references/6RLX.pdb"):
-    subprocess.run(["wget", "-O", "references/6RLX.pdb", "https://files.rcsb.org/download/6RLX.pdb"])
-if not os.path.exists("references/bombyxin.pdb"):
-    with open("references/bombyxin.fasta", "w") as f:
-        f.write(">Bombyxin-II\nGIVDECCLRPCSVAALTLREAVNS\n:CLQEGACSVSFGLDAFD")
-    subprocess.run(["colabfold_batch", "references/bombyxin.fasta", "references/", "--num-recycle", "3", "--model-type", "alphafold2_multimer_v3"], check=True)
-    os.rename("references/predict_0.pdb", "references/bombyxin.pdb")
+for ref_name, ref_path in ref_pdbs.items():
+    if not os.path.exists(ref_path) and ref_name != "dynamic":
+        if ref_name == "1TRZ":
+            subprocess.run(["wget", "-O", ref_path, "https://files.rcsb.org/download/1TRZ.pdb"])
+        elif ref_name == "6RLX":
+            subprocess.run(["wget", "-O", ref_path, "https://files.rcsb.org/download/6RLX.pdb"])
+        elif ref_name == "bombyxin":
+            with open("references/bombyxin.fasta", "w") as f:
+                f.write(">Bombyxin-II\nGIVDECCLRPCSVAALTLREAVNS\n:CLQEGACSVSFGLDAFD")
+            subprocess.run([config["colabfold_path"], "references/bombyxin.fasta", "references/", "--num-recycle", "3", "--model-type", "alphafold2_multimer_v3"])
+            os.rename("references/predict_0.pdb", ref_path)
 
 if not os.path.exists(ref_pdbs["dynamic"]) and os.path.exists("analysis/ref_ILPs_filtered.fasta"):
     ilp_seqs = list(SeqIO.parse("analysis/ref_ILPs_filtered.fasta", "fasta"))
@@ -89,10 +94,11 @@ if not os.path.exists(ref_pdbs["dynamic"]) and os.path.exists("analysis/ref_ILPs
     ref_seq = min(ilp_seqs, key=lambda x: abs(len(x.seq) - median_len))
     with open("preprocess/ref_temp.fasta", "w") as f:
         SeqIO.write(ref_seq, f, "fasta")
-    subprocess.run(["colabfold_batch", "preprocess/ref_temp.fasta", "preprocess/", "--num-recycle", "3", "--model-type", "alphafold2_multimer_v3"], check=True)
+    subprocess.run([config["colabfold_path"], "preprocess/ref_temp.fasta", "preprocess/", "--num-recycle", "3", "--model-type", "alphafold2_multimer_v3"])
     os.rename("preprocess/predict_0.pdb", ref_pdbs["dynamic"])
 
 tm_data = {ref: {} for ref in ref_pdbs}
+plddt_data = {ref: {} for ref in ref_pdbs}
 for type in ["prepro", "pro", "mature"]:
     for pdb in glob.glob(f"analysis/pdbs/{type}_*.pdb"):
         id_ = os.path.basename(pdb).replace(".pdb", "").replace(f"{type}_", "")
@@ -100,10 +106,14 @@ for type in ["prepro", "pro", "mature"]:
             result = subprocess.check_output(["tmalign", ref_path, pdb], text=True)
             tm_score = float([line for line in result.splitlines() if "TM-score=" in line][0].split()[1])
             tm_data[ref_name][id_] = tm_score
+            with open(pdb) as f:
+                plddt = statistics.mean([float(line.split()[10]) for line in f if line.startswith("ATOM")])
+            plddt_data[ref_name][id_] = plddt
     for ref_name in ref_pdbs:
         features[f"tm_score_{ref_name}_{type}"] = features["id"].map(tm_data[ref_name]).fillna(0)
+        features[f"plddt_{ref_name}_{type}"] = features["id"].map(plddt_data[ref_name]).fillna(0)
 
-# Add InterPro domains as features (chunked reading)
+# InterPro domains
 interpro_data = {}
 for f in glob.glob("candidates/*_interpro.tsv"):
     tax_id = os.path.basename(f).split("_")[0]
@@ -112,6 +122,5 @@ for f in glob.glob("candidates/*_interpro.tsv"):
             interpro_data[f"{tax_id}_{row[0].iloc[0]}"] = ";".join(row[4].dropna())
 features["domains"] = features["id"].map(interpro_data).fillna("")
 
-# Placeholder for motifs (filled later)
 features["motifs"] = ""
 features.to_csv(output_file, index=False)

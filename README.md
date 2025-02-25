@@ -8,7 +8,7 @@ This pipeline identifies insulin-like peptides (ILPs) from transcriptomic data, 
 - **Hardware**: Multi-core CPU recommended; GPU optional for ColabFold
 
 ### Installation via Conda
-bash
+```bash
 conda create -n ilp_pipeline python=3.9
 conda activate ilp_pipeline
 conda install -c bioconda curl pigz seqkit transdecoder cd-hit mmseqs2 hh-suite hmmer blast interproscan signalp6 mafft trimal fasttree iqtree meme taxonkit parallel
@@ -17,6 +17,7 @@ conda install -c anaconda pandas scikit-learn xgboost matplotlib seaborn
 pip install biopython shap logomaker pyyaml
 # ColabFold requires separate installation (see https://github.com/sokrypton/ColabFold)
 # FoldTree requires custom installation (see https://github.com/DessimozLab/fold_tree)
+```
 
 ## Directory Structure
 - `input/`: Input FASTA files (e.g., `9606_T1.fasta`)

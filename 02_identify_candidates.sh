@@ -1,5 +1,5 @@
 #!/bin/bash
-# Purpose: Identify ILP candidates from preprocessed transcriptomes
+# Purpose: Step 02 - Identify ILP candidates from preprocessed transcriptomes
 # Inputs: preprocess/*_preprocessed.fasta, input/ref_ILPs.fasta, input/ilp.hmm, input/ilp_db.hhm
 # Outputs: candidates/*_candidates.fasta, metadata files
 # Config: config.yaml (max_cpus, interpro_path)
@@ -10,11 +10,11 @@
 max_cpus=$(yq e '.max_cpus' config.yaml)
 interpro_path=$(yq e '.interpro_path' config.yaml)
 start_time=$(date +%s)
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting 03_identify_candidates.sh" >> pipeline.log
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting 02_identify_candidates.sh" >> pipeline.log
 python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory before: {psutil.virtual_memory().percent}%', file=open('pipeline.log', 'a'))"
 
 if [ -f candidates/.done ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Skipping 03_identify_candidates.sh (already done)" >> pipeline.log
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Skipping 02_identify_candidates.sh (already done)" >> pipeline.log
     exit 0
 fi
 
@@ -68,5 +68,5 @@ pigz -f candidates/tmp/*
 end_time=$(date +%s)
 runtime=$((end_time - start_time))
 python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory after: {psutil.virtual_memory().percent}%', file=open('pipeline.log', 'a'))"
-echo "$(date '+%Y-%m-%d %H:%M:%S') - 03_identify_candidates.sh completed in ${runtime}s" >> pipeline.log
+echo "$(date '+%Y-%m-%d %H:%M:%S') - 02_identify_candidates.sh completed in ${runtime}s" >> pipeline.log
 touch candidates/.done

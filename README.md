@@ -48,92 +48,124 @@ pip install 'autophy @ git+https://github.com/aortizsax/autophy@main'
 ## Pipeline Steps
 
 ### 00a_fetch_references.sh
-- **Purpose**: Fetches annotated ILP and non-ILP sequences from UniProt for training.
-- **Process**: Queries UniProt for ILPs (e.g., insulin, relaxin) across Metazoa, model organisms, and non-model organisms; fetches an equal number of non-ILPs; annotates with InterProScan and `annotate_references.py`.
-- **Output**: `input/ref_ILPs.fasta` with `[ILP]` or `[non-ILP]` tags.
-- **Details**: Uses `curl` for API queries, `pigz` for compression, and balances dataset for ML training.
+
+- **Purpose**: Fetches annotated ILP and non-ILP sequences from UniProt and generates HMM profiles for training and candidate identification.
+- **Process**: Queries UniProt for ILPs (e.g., insulin, relaxin) across Metazoa and curated references (e.g., P01308), balances with non-ILPs, annotates with InterProScan and `annotate_references.py`, aligns ILP sequences with MAFFT, builds `ilp.hmm` with `hmmbuild`, and `ilp_db.hhm` with `hhmake`.
+- **Output**: `input/ref_ILPs.fasta` (annotated), `input/ilp.hmm`, `input/ilp_db.hhm`.
+- **Details**: Uses `curl` for API calls, `pigz` for compression, multi-threaded alignment; includes dependency checks.
 
 ### 00b_prepare_training.sh
-- **Purpose**: Prepares reference data for machine learning.
-- **Process**: Clusters sequences with `linclust`, searches with `HHblits` and `HMMER`, deduplicates with `CD-HIT`, builds HMM profiles, performs BLAST, and annotates domains with InterProScan. Processes sequences into prepro, pro, and mature forms with `preprocess_ilp.py`. Extracts features (`extract_training_features.py`) and generates labels (`generate_labels.py`).
+
+- **Purpose**: Prepares reference data for machine learning with sequence-based features.
+- **Process**: Clusters sequences with `linclust`, searches with `HHblits` and `HMMER`, deduplicates with `CD-HIT`, performs BLAST, and annotates domains with InterProScan. Processes sequences into prepro, pro, and mature forms with `preprocess_ilp.py`. Extracts sequence features (`extract_training_features.py`) and generates labels (`generate_labels.py`).
+- **Inputs**: `input/ref_ILPs.fasta`, `input/ilp.hmm`, `input/ilp_db.hhm`.
 - **Output**: `preprocess/ref_features.csv`, `preprocess/ref_labels.csv`, `preprocess/*_{type}.fasta`.
-- **Details**: Optimizes with multi-threading (`-T $max_cpus`) and chunked processing in Python scripts.
+- **Details**: Multi-threaded (`-T $max_cpus`), chunked processing, validates inputs and sequence completion; structural features deferred to candidate processing.
 
 ### 01_preprocess.sh
+
 - **Purpose**: Preprocesses input transcriptomes.
 - **Process**: Translates nucleotide sequences with `TransDecoder` if needed, filters by length based on reference ILPs (`calc_ref_lengths.py`), deduplicates with `CD-HIT`.
+- **Inputs**: `input/[0-9]*_*.fasta`, `input/ref_ILPs.fasta`.
 - **Output**: `preprocess/*_preprocessed.fasta`.
-- **Details**: Multi-threaded with `seqkit` and `TransDecoder` for efficiency.
-  
-### 02_run_colabfold.sh
-- **Purpose**: Generates structural models for reference and candidate sequences.
-- **Process**: Runs ColabFold on prepro, pro, and mature FASTA files from `preprocess/` (training) and `analysis/pdbs/` (candidates), skipping existing PDBs with checkpointing.
-- **Inputs**: `preprocess/*_{type}.fasta` (from `00b`), `analysis/pdbs/*_{type}.fasta` (from `05`).
-- **Output**: `preprocess/*.pdb`, `analysis/pdbs/*.pdb`.
-- **Details**: Uses `parallel` with incremental checks, GPU support optional, validates inputs; runs after training preparation to support feature extraction and again for candidate structures.
+- **Details**: Multi-threaded with `seqkit` and `TransDecoder`, validates input files.
 
-### 03_identify_candidates.sh
+### 02_identify_candidates.sh
+
 - **Purpose**: Identifies ILP candidates from preprocessed transcriptomes.
 - **Process**: Clusters with `linclust`, searches with `HHblits` and `HMMER`, builds HMM profiles, performs batched BLAST, and annotates domains with InterProScan in parallel.
+- **Inputs**: `preprocess/[0-9]*_preprocessed.fasta`, `input/ref_ILPs.fasta`, `input/ilp.hmm`, `input/ilp_db.hhm`.
 - **Output**: `candidates/*_candidates.fasta`, metadata files (`*_hhblits.out`, etc.).
-- **Details**: Optimizes with `parallel` for InterProScan and batched BLAST for speed.
+- **Details**: Optimizes with `parallel`, caches BLAST/InterProScan, validates inputs.
 
-### 04_annotate_and_novel.sh
-- **Purpose**: Annotates candidates with ML predictions and identifies novel ILPs.
-- **Process**: Combines candidates into `analysis/all_candidates.fasta`, extracts features with `extract_features.py`, runs ML models (`run_ml.py`) to predict probabilities and novelty.
-- **Output**: `analysis/features.csv`, `analysis/predictions.csv`, `analysis/novel_candidates.csv`.
-- **Details**: See ML section below for specifics.
+### 03_annotate_and_novel.sh
+
+- **Purpose**: Performs initial ML annotation of candidates based on sequence features.
+- **Process**: Combines candidates into `analysis/all_candidates.fasta`, extracts sequence-based features with `extract_features.py`, runs ML models (`run_ml.py`) for initial probabilities and novelty prediction.
+- **Inputs**: `candidates/[0-9]*_candidates.fasta`, `preprocess/ref_features.csv`, `preprocess/ref_labels.csv`.
+- **Output**: `analysis/all_candidates.fasta`, `analysis/predictions.csv`, `analysis/novel_candidates.csv`.
+- **Details**: Initial pass without structural features; see ML section for specifics.
+
+### 04_run_colabfold.sh
+
+- **Purpose**: Generates structural models for identified ILP candidates only.
+- **Process**: Runs ColabFold on prepro, pro, and mature forms of candidate sequences from `candidates/*_candidates.fasta`, processed via `preprocess_ilp.py`, skipping existing PDBs with checkpointing.
+- **Inputs**: `candidates/*_candidates.fasta`.
+- **Output**: `analysis/pdbs/*.pdb`.
+- **Details**: Uses `parallel` with incremental checks, GPU support optional, validates inputs; predicts structures only for candidates to optimize computational efficiency.
 
 ### 05_comparative_analysis.sh
-- **Purpose**: Performs phylogenetic and structural analysis.
+
+- **Purpose**: Performs phylogenetic and structural analysis with comprehensive consensus trees.
 - **Process**: 
-  - Filters candidates to ILPs (`filter_ilps.py`).
-  - Determines common taxonomy (`determine_common_taxonomy.py`) and filters references (`filter_ref_ilps_by_taxonomy.py`).
-  - Processes sequences into prepro, pro, and mature forms (`preprocess_ilp.py`).
-  - Aligns with `MAFFT` and trims with `trimal` (cached for efficiency), builds initial trees with `FastTree`, refines with `IQ-TREE`, generates structural trees with `foldtree` in parallel, and creates consensus trees (`consensus_tree.R`).
-  - Conducts clade analysis with `ETE` and `Autophy`, followed by motif discovery (`MEME`, `AME`, `FIMO`) and logo generation (`plot_alignment.py`).
-- **Output**: `analysis/` (trees, PDBs, clades, plots).
-- **Details**: Optimized with `parallel -j 3` to limit concurrent runs, allocating more CPUs per task (e.g., MAFFT, IQ-TREE) for better multi-threading efficiency; caches alignments to speed re-runs.
+  - Filters candidates to ILPs (`filter_ilps.py`), determines taxonomy (`determine_common_taxonomy.py`), filters references (`filter_ref_ilps_by_taxonomy.py`).
+  - Aligns with `MAFFT`, trims with `trimal`, builds sequence trees with `FastTree` and `IQ-TREE`, generates structural trees with `foldtree` (Foldtree, LDDT, TM metrics) using candidate PDBs.
+  - Creates consensus trees (`consensus_tree_with_support.R`) for all combinations:
+    - Per type: Sequence + Foldtree, Sequence + LDDT, Sequence + TM, Foldtree + LDDT, Foldtree + TM, LDDT + TM, Foldtree + LDDT + TM, Sequence + Foldtree + LDDT + TM.
+    - Across types: Sequence and Foldtree combinations (e.g., prepro + pro).
+  - Conducts clade analysis with `ETE` and `Autophy`, motif discovery (`MEME`, `AME`, `FIMO`), and logo generation (`plot_alignment.py`).
+- **Inputs**: `analysis/all_candidates.fasta`, `analysis/predictions.csv`, `analysis/novel_candidates.csv`, `input/[0-9]*_*.fasta`, `input/ref_ILPs.fasta`, `analysis/pdbs/*.pdb`.
+- **Output**: `analysis/` (trees like `*_consensus_seq_foldtree.tre`, PDBs, clades, plots).
+- **Details**: Uses `parallel -j 3`, caches alignments, integrates Foldtree via Snakemake, validates `mamba`/`snakemake`.
 
 ### 06_generate_outputs.sh
-- **Purpose**: Generates final tables and plots.
-- **Process**: Runs `generate_tables.py` and `generate_plots.py` for each type (prepro, pro, mature).
-- **Output**: `output/*/*.csv` (overview, details, motif enrichment), `output/*/*.png` (counts, heatmap, violin, logos).
-- **Details**: Uses taxonkit for taxonomy in plots; chunked processing for memory efficiency.
 
-## Machine Learning Sections (03_annotate_and_novel.sh, run_ml.py)
+- **Purpose**: Generates final outputs with structural features for manuscript preparation.
+- **Process**: 
+  - Re-runs `extract_features.py` with structural features from candidate PDBs, generates tables (`generate_tables.py`) and plots (`generate_plots.py`) for each type.
+  - Produces annotated FASTA files and metadata TSV (`generate_output_fasta_and_metadata.py`).
+  - Creates 3D structure figures (`generate_structure_figures.py`) for candidates.
+- **Inputs**: `analysis/all_candidates.fasta`, `analysis/predictions.csv`, `analysis/novel_candidates.csv`, `candidates/*_blast.out`, `candidates/*_interpro.tsv`, `clades_ete_{type}/`, `clades_autophy_{type}/`, `analysis/ilp_candidates.fasta`, `analysis/ref_ILPs_filtered.fasta`, `input/[0-9]*_*.fasta`, `analysis/pdbs/`.
+- **Output**: `output/*/*.csv` (overview, details, motif enrichment), `output/*/*.png` (counts, heatmap, violin, logos), `output/*/ilps.fasta` (annotated ILPs), `output/comparative_metadata.tsv` (sequence metadata), `output/figures/*.png` (3D structures).
+- **Details**: Uses `taxonkit` for taxonomy, validates PyMOL, chunked processing; includes final feature extraction with structural data.
+
+## Machine Learning Sections (03_annotate_and_novel.sh, 06_generate_outputs.sh, run_ml.py)
 
 ### Overview
-The ML component identifies ILPs and novel candidates using an ensemble of Random Forest (RF) and XGBoost models trained on reference data.
+
+Identifies ILPs and novel candidates using an ensemble of Random Forest (RF) and XGBoost models trained on reference data, with an initial sequence-based pass and a final pass incorporating structural features.
 
 ### Feature Extraction (`extract_training_features.py`, `extract_features.py`)
-- **Inputs**: Reference (`preprocess/ref_candidates.fasta`) and candidate (`analysis/all_candidates.fasta`) sequences, search outputs (HHblits, HMMER, HHsearch, BLAST), InterPro annotations, and PDBs.
-- **Process**: 
-  - Extracts sequence similarity scores (HHblits probability, HMMER score, HHsearch probability, BLAST identity).
-  - Computes structural similarity (TM-scores) against dynamic and standard references (1TRZ, 6RLX, Bombyxin-II) for prepro, pro, and mature forms using `tmalign`.
-  - Adds InterPro domains as categorical features.
-  - Uses chunked processing (`chunksize` based on available memory) to handle large datasets efficiently.
-- **Output**: Feature matrices (`preprocess/ref_features.csv`, `analysis/features.csv`) with numeric and categorical columns.
+
+- **Initial Pass (03_annotate_and_novel.sh)**:
+  - **Inputs**: Reference (`preprocess/ref_candidates.fasta`) and candidate (`analysis/all_candidates.fasta`) sequences, search outputs (HHblits, HMMER, HHsearch, BLAST), InterPro annotations.
+  - **Process**: 
+    - Extracts sequence similarity scores (HHblits probability, HMMER score, HHsearch probability, BLAST identity).
+    - Adds physicochemical properties (hydrophobicity, charge) and InterPro domains.
+    - Uses chunked processing based on available memory (`psutil`).
+  - **Output**: `preprocess/ref_features.csv`, `analysis/features_initial.csv`.
+- **Final Pass (06_generate_outputs.sh)**:
+  - **Inputs**: `analysis/all_candidates.fasta`, `analysis/pdbs/*.pdb`.
+  - **Process**: 
+    - Repeats sequence feature extraction as above.
+    - Computes structural similarity (TM-scores, pLDDT) against dynamic and standard references (1TRZ, 6RLX, Bombyxin-II) for prepro, pro, and mature forms using `tmalign` on candidate PDBs.
+  - **Output**: `analysis/features_final.csv`.
 
 ### Label Generation (`generate_labels.py`)
-- **Inputs**: `input/ref_ILPs.fasta` (annotated references), `preprocess/ref_features.csv`.
-- **Process**: Assigns binary labels (1 for ILP, 0 for non-ILP) based on `[ILP]` tags, aligns with feature IDs.
+
+- **Inputs**: `input/ref_ILPs.fasta`, `preprocess/ref_features.csv`.
+- **Process**: Assigns binary labels (1 for ILP, 0 for non-ILP) based on `[ILP]` tags.
 - **Output**: `preprocess/ref_labels.csv`.
 
 ### Model Training and Prediction (`run_ml.py`)
-- **Inputs**: `analysis/features.csv`, `preprocess/ref_features.csv`, `preprocess/ref_labels.csv`, max CPUs.
+
+- **Inputs**: `analysis/features_initial.csv`, `preprocess/ref_features.csv`, `preprocess/ref_labels.csv`, max CPUs.
 - **Process**:
-  1. **Data Loading**: Loads features and labels with dynamic chunk sizing based on available memory (`psutil`).
-  2. **Initial Training**: Trains a full RF model on all features using `GridSearchCV` for hyperparameter tuning (n_estimators, max_depth, min_samples_split), leveraging all CPUs (`n_jobs=$max_cpus`).
-  3. **Feature Selection**: Computes SHAP values to identify the top 10 most important features (e.g., TM-scores, HHblits probability), reducing dimensionality for efficiency and generalization.
-  4. **Optimized Training**: Re-trains RF and XGBoost on selected features with tuned hyperparameters (XGBoost: n_estimators, max_depth, learning_rate).
-  5. **Prediction**: Combines RF and XGBoost probabilities (average) to predict ILP likelihood; flags novel ILPs (probability > 0.7, HHsearch < 70, BLAST < 30).
-  6. **Visualization**: Generates a SHAP summary plot from the full RF model for feature importance insight.
-- **Output**: `analysis/predictions.csv` (probabilities), `analysis/novel_candidates.csv` (novelty flags), `output/shap_summary.png`, saved models (`rf_model.joblib`, `xgb_model.joblib`).
-- **Details**: Balances accuracy and efficiency with feature selection; uses multi-threading for training; saves models for reuse.
+  1. Loads data with dynamic chunk sizing (`psutil`).
+  2. Trains RF with `GridSearchCV` for hyperparameter tuning, computes SHAP values for feature selection (top 10 features).
+  3. Re-trains RF and XGBoost with 5-fold cross-validation, reporting AUC, precision, recall (`output/ml_metrics.txt`).
+  4. Predicts ILP probabilities (RF + XGBoost average), flags novel ILPs (probability > 0.7, HHsearch < 70, BLAST < 30).
+  5. Generates SHAP summary plot.
+- **Output**: `analysis/predictions.csv`, `analysis/novel_candidates.csv`, `output/shap_summary.png`, `output/rf_model.joblib`, `output/xgb_model.joblib`, `output/ml_metrics.txt`.
+- **Details**: Multi-threaded training, reusable models, robust validation; initial pass in `03` uses sequence features only, with structural refinement possible post-`04` if re-run.
 
 ## Usage
+
 1. Place input FASTA files in `input/` (e.g., `9606_T1.fasta`).
-2. Run scripts sequentially:
+2. Configure `config.yaml` (e.g., set `signalp_path` to the SignalP 6 executable if used).
+3. Run sequentially:
    ```bash
-   bash 00a_fetch_references.sh && bash 00b_prepare_training.sh && bash 00c_run_colabfold.sh && bash 01_preprocess.sh && bash 02_identify_candidates.sh && bash 03_annotate_and_novel.sh && bash 04_comparative_analysis.sh && bash 05_generate_outputs.sh
+   bash 00a_fetch_references.sh && bash 00b_prepare_training.sh && bash 01_preprocess.sh && bash 02_identify_candidates.sh && bash 03_annotate_and_novel.sh && bash 04_run_colabfold.sh && bash 05_comparative_analysis.sh && bash 06_generate_outputs.sh
+
+
+   

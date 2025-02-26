@@ -4,7 +4,7 @@
 # Outputs: candidates/*_candidates.fasta, metadata files
 # Config: config.yaml (max_cpus, interpro_path)
 # Log: pipeline.log (progress, errors, profiling)
-# Notes: Caches BLAST and InterProScan results; added input checks
+# Notes: Prepares candidates for subsequent DeepNeuropePred processing
 # Author: Jorge L. Pérez-Moreno, Ph.D., Katz Lab, University of Massachusetts, Amherst
 
 max_cpus=$(yq e '.max_cpus' config.yaml)
@@ -45,7 +45,7 @@ for t in preprocess/[0-9]*_preprocessed.fasta; do
     python combine_hits.py "candidates/${base}_hhblits.out" "candidates/${base}_hmm.out" "candidates/${base}_candidates.fasta" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - combine_hits.py failed for $t" >> pipeline.log; exit 1; }
     hhmake -i "candidates/${base}_candidates.fasta" -o "candidates/${base}_candidates.hhm" -v 0 || { echo "$(date '+%Y-%m-%d %H:%M:%S') - hhmake failed for $t" >> pipeline.log; exit 1; }
     hhsearch -i "candidates/${base}_candidates.hhm" -d input/ilp_db.hhm -o "candidates/${base}_hhsearch.out" -cpu "$max_cpus" -v 1 || { echo "$(date '+%Y-%m-%d %H:%M:%S') - HHsearch failed for $t" >> pipeline.log; exit 1; }
-    pigz -f candidates/${base}_clust*
+    pigz -f "candidates/${base}_clust"*
 done
 
 if [ ! -f candidates/all_blast.out ]; then

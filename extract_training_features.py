@@ -2,7 +2,7 @@
 # Purpose: Extract sequence-based features from reference ILPs and non-ILPs for ML training
 # Inputs: preprocess/ref_candidates.fasta, search outputs
 # Output: preprocess/ref_features.csv
-# Notes: Structural features (TM-scores, pLDDT) deferred to candidate prediction
+# Notes: Structural features deferred to candidate prediction
 # Author: Jorge L. Pérez-Moreno, Ph.D., Katz Lab, University of Massachusetts, Amherst
 
 import pandas as pd

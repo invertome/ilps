@@ -57,12 +57,8 @@ for f in candidates/*_candidates.fasta; do
     grep "^${base}_" candidates/all_blast.out > "candidates/${base}_blast.out"
 done
 
-ls candidates/*_candidates.fasta | while read -r f; do
-    base=$(basename "$f" .fasta)
-    if [ ! -f "candidates/${base}_interpro.tsv" ]; then
-        "$interpro_path" -i "$f" -dp -f tsv -iprlookup -goterms -pa -cpu 1 > "candidates/${base}_interpro.tsv" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - InterProScan failed for $f" >> pipeline.log; exit 1; }
-    fi
-done
+# Parallelize InterProScan across candidate files
+ls candidates/*_candidates.fasta | parallel -j "$max_cpus" "$interpro_path -i {} -dp -f tsv -iprlookup -goterms -pa -cpu 1 > candidates/{/}_interpro.tsv" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - InterProScan failed" >> pipeline.log; exit 1; }
 
 pigz -f candidates/tmp/*
 end_time=$(date +%s)

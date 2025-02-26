@@ -22,11 +22,11 @@ conda config --append channels conda-forge
 conda install -c bioconda curl pigz seqkit transdecoder cd-hit mmseqs2 hhsuite blast interproscan mafft trimal fasttree iqtree meme taxonkit parallel mamba snakemake yq
 
 # Install additional dependencies, including SignalP 6 requirements
-conda install -c conda-forge r-base r-ape ete3 psutil pymol-open-source pillow numpy matplotlib tqdm pytorch=1.13
+conda install -c conda-forge biopython r-base r-ape ete3 psutil pymol-open-source pillow numpy matplotlib tqdm pytorch=1.13
 conda install -c anaconda pandas scikit-learn xgboost seaborn
 
 # Install Python libraries via pip
-pip install biopython shap logomaker pyyaml
+pip install shap logomaker pyyaml
 pip install 'autophy @ git+https://github.com/aortizsax/autophy@main'
 
 # Install SignalP 6 manually (requires license from DTU Health Tech)

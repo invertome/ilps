@@ -97,7 +97,7 @@ else:
 X_test = X_test_full[top_features]
 preds = (rf.predict_proba(X_test)[:, 1] + xgb.predict_proba(X_test)[:, 1]) / 2
 
-# Identify novel ILPs
+# Identify novel ILPs using thresholds from config.yaml
 novel = ((preds > config["ilp_prob_threshold"]) & 
          (candidate_features["hhsearch_prob"] < config["hhsearch_novel_threshold"]) & 
          (candidate_features["blast_identity"] < config["blast_novel_threshold"])).astype(int)

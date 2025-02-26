@@ -1,12 +1,12 @@
 #!/bin/bash
 # Purpose: Generate static HTML site for offline access to results
 # Inputs: analysis/features_final.csv, analysis/predictions.csv, analysis/novel_candidates.csv, candidates/*_blast.out, candidates/*_interpro.tsv, clades_*
-# Outputs: output/*/*.csv, output/*/*.png, output/*/ilps.fasta, output/figures/*.html, output/index.html, output/type_pages/*.html
+# Outputs: output/*/*.csv, output/*/*.png, output/*/ilps.fasta, output/figures/*.html, output/index.html, output/type_pages/*.html, output/summary.html
 # Config: config.yaml (max_cpus, ngl_viewer_path)
 # Log: pipeline.log (progress, errors)
 
 max_cpus=$(yq e '.max_cpus' config.yaml)
-ngl_viewer_path=$(yq e '.ngl_viewer_path' config.yaml)
+ngl_viewer_url="https://unpkg.com/ngl@2.0.0/dist/ngl.js"  # URL for NGL Viewer
 start_time=$(date +%s)
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting 06_generate_outputs.sh" >> pipeline.log
 
@@ -17,7 +17,13 @@ if [ -f output/.done ]; then
 fi
 
 # Create output directories
-mkdir -p output/prepro output/pro output/mature output/figures output/type_pages
+mkdir -p output/prepro output/pro output/mature output/figures output/type_pages output/ngl_viewer
+
+# Download NGL Viewer if not present
+if [ ! -f "output/ngl_viewer/ngl.js" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Downloading NGL Viewer" >> pipeline.log
+    wget "$ngl_viewer_url" -O "output/ngl_viewer/ngl.js" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Failed to download NGL Viewer" >> pipeline.log; exit 1; }
+fi
 
 # Generate tables, plots, FASTA, and metadata (assumes these Python scripts exist)
 for type in prepro pro mature; do
@@ -38,6 +44,7 @@ for pdb in analysis/pdbs/*.pdb; do
 <head>
     <meta charset="UTF-8">
     <title>${base} Structure</title>
+    <link rel="stylesheet" href="../styles.css">
     <script src="../ngl_viewer/ngl.js"></script>
 </head>
 <body>
@@ -53,8 +60,37 @@ for pdb in analysis/pdbs/*.pdb; do
 EOF
 done
 
-# Generate static HTML site
+# Generate static HTML site with CSS
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Generating static HTML site" >> pipeline.log
+
+# Create styles.css
+cat <<EOF > output/styles.css
+body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+}
+h1, h2 {
+    color: #333;
+}
+img {
+    max-width: 100%;
+    height: auto;
+}
+ul {
+    list-style: none;
+    padding: 0;
+}
+li {
+    margin: 10px 0;
+}
+a {
+    text-decoration: none;
+    color: #007bff;
+}
+a:hover {
+    text-decoration: underline;
+}
+EOF
 
 # Create index.html
 cat <<EOF > output/index.html
@@ -63,6 +99,7 @@ cat <<EOF > output/index.html
 <head>
     <meta charset="UTF-8">
     <title>ILP Pipeline Results Explorer</title>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <h1>ILP Pipeline Results Explorer</h1>
@@ -72,6 +109,7 @@ cat <<EOF > output/index.html
         <li><a href="type_pages/pro.html">Pro</a></li>
         <li><a href="type_pages/mature.html">Mature</a></li>
     </ul>
+    <p><a href="summary.html">View Metadata Summary</a></p>
 </body>
 </html>
 EOF
@@ -84,6 +122,7 @@ for type in prepro pro mature; do
 <head>
     <meta charset="UTF-8">
     <title>${type^} Results</title>
+    <link rel="stylesheet" href="../styles.css">
 </head>
 <body>
     <h1>${type^} Results</h1>
@@ -98,45 +137,64 @@ EOF
 
     echo "    </ul>" >> "output/type_pages/${type}.html"
     echo "    <h2>Plots</h2>" >> "output/type_pages/${type}.html"
-    echo "    <ul>" >> "output/type_pages/${type}.html"
+    echo "    <ul>" >> "output_type_pages/${type}.html"
 
     for plot in $(ls output/${type}/*.png 2>/dev/null); do
         base=$(basename "$plot")
-        echo "        <li><img src=\"../${type}/${base}\" alt=\"${base}\" style=\"max-width:500px;\"></li>" >> "output/type_pages/${type}.html"
+        echo "        <li><img src=\"../${type}/${base}\" alt=\"${base}\"></li>" >> "output_type_pages/${type}.html"
     done
 
-    echo "    </ul>" >> "output/type_pages/${type}.html"
-    echo "    <h2>Trees</h2>" >> "output/type_pages/${type}.html"
-    echo "    <ul>" >> "output/type_pages/${type}.html"
+    echo "    </ul>" >> "output_type_pages/${type}.html"
+    echo "    <h2>Trees</h2>" >> "output_type_pages/${type}.html"
+    echo "    <ul>" >> "output_type_pages/${type}.html"
 
     for tree in $(ls analysis/${type}_*.tre 2>/dev/null); do
         base=$(basename "$tree")
-        echo "        <li><a href=\"../analysis/${base}\">${base}</a></li>" >> "output/type_pages/${type}.html"
+        echo "        <li><a href=\"../analysis/${base}\">${base}</a></li>" >> "output_type_pages/${type}.html"
     done
 
-    echo "    </ul>" >> "output/type_pages/${type}.html"
-    echo "    <h2>Alignments</h2>" >> "output/type_pages/${type}.html"
+    echo "    </ul>" >> "output_type_pages/${type}.html"
+    echo "    <h2>Alignments</h2>" >> "output_type_pages/${type}.html"
     echo "    <ul>" >> "output_type_pages/${type}.html"
 
     for alignment in $(ls analysis/aligned_${type}/*.fasta 2>/dev/null); do
         base=$(basename "$alignment")
-        echo "        <li><a href=\"../analysis/aligned_${type}/${base}\">${base}</a></li>" >> "output/type_pages/${type}.html"
+        echo "        <li><a href=\"../analysis/aligned_${type}/${base}\">${base}</a></li>" >> "output_type_pages/${type}.html"
     done
 
-    echo "    </ul>" >> "output/type_pages/${type}.html"
-    echo "    <h2>3D Structures</h2>" >> "output/type_pages/${type}.html"
-    echo "    <ul>" >> "output/title_pages/${type}.html"
+    echo "    </ul>" >> "output_type_pages/${type}.html"
+    echo "    <h2>3D Structures</h2>" >> "output_type_pages/${type}.html"
+    echo "    <ul>" >> "output_type_pages/${type}.html"
 
     for structure in $(ls output/figures/${type}_*.html 2>/dev/null); do
         base=$(basename "$structure")
-        echo "        <li><a href=\"../figures/${base}\">${base}</a></li>" >> "output/type_pages/${type}.html"
+        echo "        <li><a href=\"../figures/${base}\">${base}</a></li>" >> "output_type_pages/${type}.html"
     done
 
-    echo "    </ul>" >> "output/type_pages/${type}.html"
-    echo "    <a href=\"../index.html\">Back to Home</a>" >> "output/type_pages/${type}.html"
-    echo "</body>" >> "output/type_pages/${type}.html"
-    echo "</html>" >> "output/type_pages/${type}.html"
+    echo "    </ul>" >> "output_type_pages/${type}.html"
+    echo "    <a href=\"../index.html\">Back to Home</a>" >> "output_type_pages/${type}.html"
+    echo "</body>" >> "output_type_pages/${type}.html"
+    echo "</html>" >> "output_type_pages/${type}.html"
 done
+
+# Create summary.html
+cat <<EOF > output/summary.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Metadata Summary</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <h1>Metadata Summary</h1>
+    <p>Number of Candidates: $(wc -l < analysis/all_candidates.fasta)</p>
+    <p>Average Prediction Score: $(awk -F',' '{sum+=$2} END {print sum/NR}' analysis/predictions.csv)</p>
+    <!-- Add more summary statistics as needed -->
+    <a href="index.html">Back to Home</a>
+</body>
+</html>
+EOF
 
 end_time=$(date +%s)
 runtime=$((end_time - start_time))

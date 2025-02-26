@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ type.capitalize() }} Results</title>
+</head>
+<body>
+    <h1>{{ type.capitalize() }} Results</h1>
+    <h2>Tables</h2>
+    <ul>
+        {% for table in tables %}
+            <li><a href="/static/{{ type }}/{{ table }}">{{ table }}</a></li>
+        {% endfor %}
+    </ul>
+    <h2>Plots</h2>
+    <ul>
+        {% for plot in plots %}
+            <li><img src="/static/{{ type }}/{{ plot }}" alt="{{ plot }}"></li>
+        {% endfor %}
+    </ul>
+    <h2>Trees</h2>
+    <ul>
+        {% for tree in trees %}
+            <li><a href="/static/analysis/{{ tree }}">{{ tree }}</a></li>
+        {% endfor %}
+    </ul>
+    <h2>Alignments</h2>
+    <ul>
+        {% for alignment in alignments %}
+            <li><a href="/static/analysis/aligned_{{ type }}/{{ alignment }}">{{ alignment }}</a></li>
+        {% endfor %}
+    </ul>
+    <h2>3D Structures</h2>
+    <ul>
+        {% for structure in structures %}
+            <li><a href="/static/figures/{{ structure }}">{{ structure }}</a></li>
+        {% endfor %}
+    </ul>
+    <a href="/">Back to Home</a>
+</body>
+</html>

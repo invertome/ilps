@@ -16,7 +16,6 @@ ml_cross_validation_folds: 5
 pymol_path: "/path/to/pymol"  # Optional, for fallback
 ngl_viewer_path: "output/ngl_viewer"  # Path to NGL Viewer files
 flask_app_port: 5000  # Port for Flask web app
-signalp_path: "/path/to/signalp6"  # Optional
 colabfold_path: "/path/to/colabfold_batch"
 interpro_path: "interproscan.sh"
 tmalign_refs:

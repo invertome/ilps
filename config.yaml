@@ -11,3 +11,5 @@ tmalign_refs:              # TM-align reference structures
   1TRZ: "references/1TRZ.pdb"
   6RLX: "references/6RLX.pdb"
   bombyxin: "references/bombyxin.pdb"
+deepneuropepred_model: "deepneuropepred/pretrain_model/DeepNeuropePred.pth"
+deepneuropepred_script: "deepneuropepred/test.py"

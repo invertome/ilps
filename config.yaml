@@ -24,3 +24,4 @@ tmalign_refs:
   dynamic: "preprocess/dynamic_ref.pdb"
 deepneuropepred_model: "deepneuropepred/pretrain_model/DeepNeuropePred.pth"
 deepneuropepred_script: "deepneuropepred/test.py"
+ngl_viewer_path: "output/ngl_viewer"  # Path to NGL Viewer files

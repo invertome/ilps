@@ -1,10 +1,10 @@
 #!/bin/bash
-# Purpose: Prepare training data for ML by processing reference sequences
+# Purpose: Step 00b - Prepare training data for ML by processing reference sequences
 # Inputs: input/ref_ILPs.fasta (annotated ILP/non-ILP sequences), input/ilp.hmm, input/ilp_db.hhm
 # Outputs: preprocess/ref_features.csv, preprocess/ref_labels.csv, preprocess/*_${type}.fasta
 # Config: config.yaml (max_cpus)
 # Log: pipeline.log
-# Notes: Uses linclust, SignalP, and InterPro for sequence processing; added input checks
+# Notes: Uses linclust, HHblits, HMMER for sequence processing; structural features added later
 # Author: Jorge L. Pérez-Moreno, Ph.D., Katz Lab, University of Massachusetts, Amherst
 
 max_cpus=$(yq e '.max_cpus' config.yaml)
@@ -46,7 +46,7 @@ blastp -query preprocess/ref_candidates.fasta -db input/ref_ILPs_db -out preproc
 interpro_path=$(yq e '.interpro_path' config.yaml)
 "$interpro_path" -i preprocess/ref_candidates.fasta -dp -f tsv -iprlookup -goterms -pa -cpu "$max_cpus" > preprocess/ref_interpro.tsv || { echo "$(date '+%Y-%m-%d %H:%M:%S') - InterProScan failed" >> pipeline.log; exit 1; }
 
-# Process sequences and validate completion
+# Process sequences into prepro, pro, mature forms (no structure prediction here)
 seq_count=$(seqkit seq -n preprocess/ref_candidates.fasta | wc -l)
 for type in prepro pro mature; do
     for seq in $(seqkit seq -n preprocess/ref_candidates.fasta); do
@@ -59,6 +59,7 @@ for type in prepro pro mature; do
     fi
 done
 
+# Extract sequence-based features only (structural features deferred to candidates)
 python extract_training_features.py preprocess/ref_candidates.fasta preprocess/ref_hhblits.out preprocess/ref_hmm.out preprocess/ref_hhsearch.out preprocess/ref_blast.out preprocess/ref_interpro.tsv preprocess/ > preprocess/ref_features.csv || { echo "$(date '+%Y-%m-%d %H:%M:%S') - extract_training_features.py failed" >> pipeline.log; exit 1; }
 python generate_labels.py input/ref_ILPs.fasta preprocess/ref_features.csv preprocess/ref_labels.csv || { echo "$(date '+%Y-%m-%d %H:%M:%S') - generate_labels.py failed" >> pipeline.log; exit 1; }
 

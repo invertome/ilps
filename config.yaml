@@ -1,6 +1,8 @@
 # config.yaml
 max_cpus: 16
-ilp_prob_threshold: 0.5
+ilp_prob_threshold: 0.75  # Adjusted for novelty detection
+hhsearch_novel_threshold: 60  # Adjusted for novelty detection
+blast_novel_threshold: 25  # Adjusted for novelty detection
 use_deepneuropepred: true
 cleavage_threshold: 0.5
 colabfold_model_type: "alphafold2_multimer_v3"

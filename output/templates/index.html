@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ILP Pipeline Results Explorer</title>
+</head>
+<body>
+    <h1>ILP Pipeline Results Explorer</h1>
+    <p>Select a sequence type to explore results:</p>
+    <ul>
+        {% for type in types %}
+            <li><a href="/{{ type }}">{{ type.capitalize() }}</a></li>
+        {% endfor %}
+    </ul>
+</body>
+</html>

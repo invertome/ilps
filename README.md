@@ -159,11 +159,20 @@ Identifies ILPs and novel candidates using an ensemble of Random Forest (RF) and
 - **Output**: `analysis/predictions.csv`, `analysis/novel_candidates.csv`, `output/shap_summary.png`, `output/rf_model.joblib`, `output/xgb_model.joblib`, `output/ml_metrics.txt`.
 - **Details**: Multi-threaded training, reusable models, robust validation; initial pass in `03` uses sequence features only, with structural refinement possible post-`04` if re-run.
 
-## Usage
 
-1. Place input FASTA files in `input/` (e.g., `9606_T1.fasta`).
-2. Configure `config.yaml` (e.g., set `signalp_path` to the SignalP 6 executable if used).
-3. Run sequentially:
+## Parameter Customization
+- **Thresholds**: Key thresholds such as `ilp_prob_threshold`, `hhsearch_novel_threshold`, and `blast_novel_threshold` can be adjusted in `config.yaml` to fine-tune ILP identification and novelty detection.
+- **Tools and Paths**: Ensure all tool paths (e.g., `interpro_path`, `colabfold_path`) are correctly set in `config.yaml`.
+
+## Error Handling
+- The pipeline includes checks for missing tools, input files, and failed commands. Logs are recorded in `pipeline.log` for troubleshooting.
+- For external tool failures (e.g., `Foldtree` in `05_comparative_analysis.sh`), check the corresponding log files in `analysis/` or `fold_tree/` directories.
+
+  
+## Usage Example
+1. Place your transcriptome FASTA files in `input/` with TaxID prefixes (e.g., `9606_T1.fasta`).
+2. Update `config.yaml` with appropriate tool paths and parameters.
+3. Run the pipeline sequentially:
    ```bash
    bash 00a_fetch_references.sh && bash 00b_prepare_training.sh && bash 01_preprocess.sh && bash 02_identify_candidates.sh && bash 03_annotate_and_novel.sh && bash 04_run_colabfold.sh && bash 05_comparative_analysis.sh && bash 06_generate_outputs.sh
 

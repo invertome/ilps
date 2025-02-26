@@ -14,11 +14,15 @@ import os
 import statistics
 from Bio.SeqUtils.ProtParam import ProteinAnalysis
 import yaml
+import psutil
 
 fasta = sys.argv[1]
 output_file = sys.argv[2]
 with open("config.yaml") as f:
     config = yaml.safe_load(f)
+
+# Dynamic chunk size based on available memory
+chunksize = int(psutil.virtual_memory().available / (1024 * 1024 * 10))  # Adjust as needed
 
 features = pd.DataFrame()
 seqs = list(SeqIO.parse(fasta, "fasta"))
@@ -64,7 +68,7 @@ features["hhsearch_prob"] = features["id"].map(hhsearch_data).fillna(0)
 blast_data = {}
 for f in glob.glob("candidates/*_blast.out"):
     tax_id = os.path.basename(f).split("_")[0]
-    for chunk in pd.read_csv(f, sep="\t", header=None, usecols=[0, 2], chunksize=10000):
+    for chunk in pd.read_csv(f, sep="\t", header=None, usecols=[0, 2], chunksize=chunksize):
         for _, row in chunk.iterrows():
             blast_data[f"{tax_id}_{row[0]}"] = row[2]
 features["blast_identity"] = features["id"].map(blast_data).fillna(0)
@@ -117,7 +121,7 @@ for type in ["prepro", "pro", "mature"]:
 interpro_data = {}
 for f in glob.glob("candidates/*_interpro.tsv"):
     tax_id = os.path.basename(f).split("_")[0]
-    for chunk in pd.read_csv(f, sep="\t", usecols=[0, 4], chunksize=10000):
+    for chunk in pd.read_csv(f, sep="\t", usecols=[0, 4], chunksize=chunksize):
         for _, row in chunk.groupby(0):
             interpro_data[f"{tax_id}_{row[0].iloc[0]}"] = ";".join(row[4].dropna())
 features["domains"] = features["id"].map(interpro_data).fillna("")

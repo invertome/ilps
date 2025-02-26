@@ -2,13 +2,16 @@
 # Purpose: Step 05 - Perform comparative and phylogenetic analysis on ILP candidates
 # Inputs: analysis/all_candidates.fasta, analysis/predictions.csv, analysis/novel_candidates.csv
 # Outputs: analysis/ (trees, pdbs/, clades_*, unaligned_*, aligned_*, plots_*)
-# Config: config.yaml (max_cpus)
+# Config: config.yaml (max_cpus, mafft_options, phylo_tool, clade_methods, foldtree_filter_plddt)
 # Log: pipeline.log (progress, errors, profiling)
-# Notes: Generates all possible consensus trees from sequence and structural data; ensures environment consistency
-# Author: Jorge L. Pérez-Moreno, Ph.D., Katz Lab, University of Massachusetts, Amherst
+# Notes: Supports Phyloformer and TreeCluster based on config; uses settings from config.yaml
 
 max_cpus=$(yq e '.max_cpus' config.yaml)
 cpus_per_task=$((max_cpus / 3))
+mafft_options=$(yq e '.mafft_options' config.yaml)
+phylo_tool=$(yq e '.phylo_tool' config.yaml)
+clade_methods=$(yq e '.clade_methods' config.yaml | tr -d '[]' | tr ',' ' ')
+foldtree_filter_plddt=$(yq e '.foldtree_filter_plddt' config.yaml)
 start_time=$(date +%s)
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting 05_comparative_analysis.sh with $cpus_per_task CPUs per task" >> pipeline.log
 python -c "import psutil; print(f'$(date '+%Y-%m-%d %H:%M:%S') - Memory before: {psutil.virtual_memory().percent}%', file=open('pipeline.log', 'a'))"
@@ -24,7 +27,7 @@ if ! command -v mamba >/dev/null 2>&1 || ! command -v snakemake >/dev/null 2>&1;
     exit 1
 fi
 
-mkdir -p analysis/pdbs clades_ete_prepro clades_autophy_prepro clades_ete_pro clades_autophy_pro clades_ete_mature clades_autophy_mature analysis/unaligned_prepro analysis/aligned_prepro analysis/plots_prepro analysis/unaligned_pro analysis/aligned_pro analysis/plots_pro analysis/unaligned_mature analysis/aligned_mature analysis/plots_mature
+mkdir -p analysis/pdbs clades_ete_prepro clades_autophy_prepro clades_treecluster_prepro clades_ete_pro clades_autophy_pro clades_treecluster_pro clades_ete_mature clades_autophy_mature clades_treecluster_mature analysis/unaligned_prepro analysis/aligned_prepro analysis/plots_prepro analysis/unaligned_pro analysis/aligned_pro analysis/plots_pro analysis/unaligned_mature analysis/aligned_mature analysis/plots_mature
 
 python filter_ilps.py analysis/all_candidates.fasta analysis/predictions.csv analysis/ilp_candidates.fasta || { echo "$(date '+%Y-%m-%d %H:%M:%S') - filter_ilps.py failed" >> pipeline.log; exit 1; }
 python determine_common_taxonomy.py input/[0-9]*_*.fasta analysis/common_taxonomy.txt || { echo "$(date '+%Y-%m-%d %H:%M:%S') - determine_common_taxonomy.py failed" >> pipeline.log; exit 1; }
@@ -39,33 +42,33 @@ for type in prepro pro mature; do
 done
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Processing sequence alignments and trees" >> pipeline.log
-checkpoint="iqtree_checkpoint.txt"
+checkpoint="phylo_checkpoint.txt"
 touch "$checkpoint"
 echo "prepro pro mature" | parallel -j 3 --eta "\
     echo \"$(date '+%Y-%m-%d %H:%M:%S') - Starting processing for {}\"; \
     cat analysis/ilp_candidates.fasta analysis/ref_ILPs_filtered.fasta > analysis/{}_analysis_candidates.fasta || { echo \"$(date '+%Y-%m-%d %H:%M:%S') - cat failed for {}\"; exit 1; }; \
     if [ ! -f analysis/{}_alignment_trimmed.fasta ]; then \
         echo \"$(date '+%Y-%m-%d %H:%M:%S') - Running MAFFT for {}\"; \
-        mafft --globalpair --maxiterate 1000 --thread $cpus_per_task analysis/{}_analysis_candidates.fasta > analysis/{}_alignment.fasta || { echo \"$(date '+%Y-%m-%d %H:%M:%S') - MAFFT failed for {}\"; exit 1; }; \
+        mafft $mafft_options --thread $cpus_per_task analysis/{}_analysis_candidates.fasta > analysis/{}_alignment.fasta || { echo \"$(date '+%Y-%m-%d %H:%M:%S') - MAFFT failed for {}\"; exit 1; }; \
         trimal -in analysis/{}_alignment.fasta -out analysis/{}_alignment_trimmed.fasta -automated1 || { echo \"$(date '+%Y-%m-%d %H:%M:%S') - trimal failed for {}\"; exit 1; }; \
     fi; \
     FastTree -lg -nt -fastest analysis/{}_alignment_trimmed.fasta > analysis/{}_fasttree.tre || { echo \"$(date '+%Y-%m-%d %H:%M:%S') - FastTree failed for {}\"; exit 1; }; \
-    if ! grep -q \"analysis/{}_iqtree.treefile\" \"$checkpoint\"; then \
-        echo \"$(date '+%Y-%m-%d %H:%M:%S') - Running IQ-TREE for {}\"; \
-        iqtree -s analysis/{}_alignment_trimmed.fasta -m TEST -abayes -B 10000 -bnni -T $cpus_per_task -t analysis/{}_fasttree.tre -pre analysis/{}_iqtree --redo || { echo \"$(date '+%Y-%m-%d %H:%M:%S') - IQ-TREE failed for {}\"; exit 1; }; \
-        echo \"analysis/{}_iqtree.treefile\" >> \"$checkpoint\"; \
-    fi; \
-    mv analysis/{}_iqtree.treefile analysis/{}_alignment.fasta.treefile"
+    if ! grep -q \"analysis/{}_tree.nwk\" \"$checkpoint\"; then \
+        echo \"$(date '+%Y-%m-%d %H:%M:%S') - Running $phylo_tool for {}\"; \
+        if [ \"$phylo_tool\" = \"iqtree\" ]; then \
+            iqtree -s analysis/{}_alignment_trimmed.fasta -m TEST -abayes -B 10000 -bnni -T $cpus_per_task -t analysis/{}_fasttree.tre -pre analysis/{}_iqtree --redo || { echo \"$(date '+%Y-%m-%d %H:%M:%S') - IQ-TREE failed for {}\"; exit 1; }; \
+            mv analysis/{}_iqtree.treefile analysis/{}_tree.nwk; \
+        elif [ \"$phylo_tool\" = \"phyloformer\" ]; then \
+            source \"$(conda info --base)/etc/profile.d/conda.sh\"; \
+            conda activate phyloformer_env; \
+            phyloformer -i analysis/{}_alignment_trimmed.fasta -o analysis/{}_tree.nwk --model /path/to/phyloformer_model.pt --device cpu || { echo \"$(date '+%Y-%m-%d %H:%M:%S') - Phyloformer failed for {}\"; exit 1; }; \
+            conda deactivate; \
+        fi; \
+        echo \"analysis/{}_tree.nwk\" >> \"$checkpoint\"; \
+    fi;"
 
 # Generate structural trees using Foldtree Snakemake workflow
 echo "$(date '+%Y-%m-%d %H:%M:%S') - Generating structural trees with Foldtree" >> pipeline.log
-
-# Ensure running in ilp_pipeline environment
-if [ -z "$CONDA_DEFAULT_ENV" ] || [ "$CONDA_DEFAULT_ENV" != "ilp_pipeline" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Warning: Not in ilp_pipeline environment; activating it" >> pipeline.log
-    source "$(conda info --base)/etc/profile.d/conda.sh"
-    conda activate ilp_pipeline || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Failed to activate ilp_pipeline" >> pipeline.log; exit 1; }
-fi
 
 if [ ! -d "fold_tree" ]; then
     git clone git@github.com:DessimozLab/fold_tree.git || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Failed to clone Foldtree repository" >> pipeline.log; exit 1; }
@@ -82,7 +85,7 @@ for type in prepro pro mature; do
     cp analysis/pdbs/${type}_*.pdb "$foldtree_dir/structs/" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Failed to copy PDBs for $type" >> pipeline.log; exit 1; }
     touch "$foldtree_dir/identifiers.txt"
     snakemake --cores "$cpus_per_task" --use-conda -s ./fold_tree/workflow/fold_tree \
-        --config folder="$foldtree_dir" filter=False custom_structs=True foldseek_cores="$cpus_per_task" \
+        --config folder="$foldtree_dir" filter=True filter_plddt="$foldtree_filter_plddt" custom_structs=True foldseek_cores="$cpus_per_task" \
         || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Foldtree failed for $type" >> pipeline.log; exit 1; }
     mv "$foldtree_dir/Foldtree.tre" "analysis/${type}_foldtree.tre"
     mv "$foldtree_dir/LDDT.tre" "analysis/${type}_lddt.tre"
@@ -94,34 +97,18 @@ mamba deactivate
 conda activate ilp_pipeline || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Failed to reactivate ilp_pipeline" >> pipeline.log; exit 1; }
 
 for type in prepro pro mature; do
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Generating consensus trees for $type" >> pipeline.log
-    Rscript consensus_tree_with_support.R "analysis/${type}_alignment.fasta.treefile" "analysis/${type}_foldtree.tre" "analysis/${type}_consensus_seq_foldtree.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Sequence + Foldtree consensus failed for $type" >> pipeline.log; exit 1; }
-    Rscript consensus_tree_with_support.R "analysis/${type}_alignment.fasta.treefile" "analysis/${type}_lddt.tre" "analysis/${type}_consensus_seq_lddt.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Sequence + LDDT consensus failed for $type" >> pipeline.log; exit 1; }
-    Rscript consensus_tree_with_support.R "analysis/${type}_alignment.fasta.treefile" "analysis/${type}_tm.tre" "analysis/${type}_consensus_seq_tm.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Sequence + TM consensus failed for $type" >> pipeline.log; exit 1; }
-    Rscript consensus_tree_with_support.R "analysis/${type}_foldtree.tre" "analysis/${type}_lddt.tre" "analysis/${type}_consensus_foldtree_lddt.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Foldtree + LDDT consensus failed for $type" >> pipeline.log; exit 1; }
-    Rscript consensus_tree_with_support.R "analysis/${type}_foldtree.tre" "analysis/${type}_tm.tre" "analysis/${type}_consensus_foldtree_tm.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Foldtree + TM consensus failed for $type" >> pipeline.log; exit 1; }
-    Rscript consensus_tree_with_support.R "analysis/${type}_lddt.tre" "analysis/${type}_tm.tre" "analysis/${type}_consensus_lddt_tm.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - LDDT + TM consensus failed for $type" >> pipeline.log; exit 1; }
-    Rscript consensus_tree_with_support.R "analysis/${type}_foldtree.tre" "analysis/${type}_lddt.tre" "analysis/${type}_tm.tre" "analysis/${type}_consensus_foldtree_lddt_tm.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Foldtree + LDDT + TM consensus failed for $type" >> pipeline.log; exit 1; }
-    Rscript consensus_tree_with_support.R "analysis/${type}_alignment.fasta.treefile" "analysis/${type}_foldtree.tre" "analysis/${type}_lddt.tre" "analysis/${type}_tm.tre" "analysis/${type}_consensus_all.tre" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Sequence + Foldtree + LDDT + TM consensus failed for $type" >> pipeline.log; exit 1; }
-done
-
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Generating additional sequence consensus trees across types" >> pipeline.log
-Rscript consensus_tree_with_support.R analysis/prepro_alignment.fasta.treefile analysis/pro_alignment.fasta.treefile analysis/prepro_pro_seq_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Prepro + Pro (sequence) consensus failed" >> pipeline.log; exit 1; }
-Rscript consensus_tree_with_support.R analysis/pro_alignment.fasta.treefile analysis/mature_alignment.fasta.treefile analysis/pro_mature_seq_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Pro + Mature (sequence) consensus failed" >> pipeline.log; exit 1; }
-Rscript consensus_tree_with_support.R analysis/prepro_alignment.fasta.treefile analysis/mature_alignment.fasta.treefile analysis/prepro_mature_seq_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Prepro + Mature (sequence) consensus failed" >> pipeline.log; exit 1; }
-Rscript consensus_tree_with_support.R analysis/prepro_alignment.fasta.treefile analysis/pro_alignment.fasta.treefile analysis/mature_alignment.fasta.treefile analysis/all_seq_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - All three (sequence) consensus failed" >> pipeline.log; exit 1; }
-
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Generating additional structural consensus trees across types" >> pipeline.log
-Rscript consensus_tree_with_support.R analysis/prepro_foldtree.tre analysis/pro_foldtree.tre analysis/prepro_pro_foldtree_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Prepro + Pro (Foldtree) consensus failed" >> pipeline.log; exit 1; }
-Rscript consensus_tree_with_support.R analysis/pro_foldtree.tre analysis/mature_foldtree.tre analysis/pro_mature_foldtree_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Pro + Mature (Foldtree) consensus failed" >> pipeline.log; exit 1; }
-Rscript consensus_tree_with_support.R analysis/prepro_foldtree.tre analysis/mature_foldtree.tre analysis/prepro_mature_foldtree_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Prepro + Mature (Foldtree) consensus failed" >> pipeline.log; exit 1; }
-Rscript consensus_tree_with_support.R analysis/prepro_foldtree.tre analysis/pro_foldtree.tre analysis/mature_foldtree.tre analysis/all_foldtree_consensus.tre || { echo "$(date '+%Y-%m-%d %H:%M:%S') - All three (Foldtree) consensus failed" >> pipeline.log; exit 1; }
-
-for type in prepro pro mature; do
     echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting clade analysis for $type" >> pipeline.log
-    python identify_clades.py "analysis/${type}_consensus_seq_foldtree.tre" "clades_ete_${type}/" "analysis/unaligned_${type}/" "analysis/aligned_${type}/" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - identify_clades.py failed for $type" >> pipeline.log; exit 1; }
-    autophy -t "analysis/${type}_consensus_seq_foldtree.tre" -o "clades_autophy_${type}/" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Autophy failed for $type" >> pipeline.log; exit 1; }
-    for clade_dir in "clades_ete_${type}" "clades_autophy_${type}"; do
+    for method in $clade_methods; do
+        if [ "$method" = "ete" ]; then
+            python identify_clades.py "analysis/${type}_tree.nwk" "clades_ete_${type}/" "analysis/unaligned_${type}/" "analysis/aligned_${type}/" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - identify_clades.py failed for $type" >> pipeline.log; exit 1; }
+        elif [ "$method" = "autophy" ]; then
+            autophy -t "analysis/${type}_tree.nwk" -o "clades_autophy_${type}/" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - Autophy failed for $type" >> pipeline.log; exit 1; }
+        elif [ "$method" = "treecluster" ]; then
+            treecluster -i "analysis/${type}_tree.nwk" -o "clades_treecluster_${type}/" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - TreeCluster failed for $type" >> pipeline.log; exit 1; }
+        fi
+    done
+
+    for clade_dir in $(ls -d clades_*_${type}/); do
         method=$(basename "$clade_dir" | cut -d'_' -f2)
         ls "$clade_dir"/*.fasta | parallel -j "$max_cpus" "meme {} -o ${clade_dir}/meme_{/} -maxw 20 -nmotifs 5 -mod zoops" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - MEME failed for $method $type" >> pipeline.log; exit 1; }
         ls "$clade_dir"/*.fasta | parallel -j "$max_cpus" "ame --control analysis/${type}_analysis_candidates.fasta ${clade_dir}/meme_{/}/meme.txt > ${clade_dir}/ame_{/}.txt" || { echo "$(date '+%Y-%m-%d %H:%M:%S') - AME failed for $method $type" >> pipeline.log; exit 1; }

@@ -3,14 +3,13 @@
 This pipeline identifies insulin-like peptides (ILPs) from transcriptomic data, performs machine learning-based annotation, and conducts phylogenetic analysis across prepropeptide, propeptide, and mature peptide forms. It is optimized for efficiency and scalability, leveraging parallel processing and memory-efficient techniques.
 
 ## Prerequisites
-- **Tools**: `curl`, `pigz`, `seqkit`, `TransDecoder`, `cd-hit`, `mmseqs2`, `hhblits`, `hmmsearch`, `hhmake`, `hmmbuild`, `hhsearch`, `blastp`, `interproscan.sh`, `signalp6`, `colabfold_batch`, `mafft`, `trimal`, `FastTree`, `iqtree`, `foldtree`, `R` (with `ape` package), `ete3`, `autophy`, `meme`, `ame`, `fimo`, `taxonkit`, `parallel`, `mamba`, `snakemake`, `pymol`, `yq`
+- **Tools**: `curl`, `pigz`, `seqkit`, `TransDecoder`, `cd-hit`, `mmseqs2`, `hhblits`, `hmmsearch`, `hhmake`, `hmmbuild`, `hhsearch`, `blastp`, `interproscan.sh`, `colabfold_batch`, `mafft`, `trimal`, `FastTree`, `iqtree`, `foldtree`, `R` (with `ape` package), `ete3`, `autophy`, `meme`, `ame`, `fimo`, `taxonkit`, `parallel`, `mamba`, `snakemake`, `pymol`, `yq`
 - **Python Libraries**: `BioPython`, `pandas`, `scikit-learn`, `xgboost`, `shap`, `matplotlib`, `seaborn`, `logomaker`, `psutil`, `pyyaml`
 - **Hardware**: Multi-core CPU recommended; GPU optional for ColabFold
 
 ### Installation via Conda
-
 ```bash
-# Create and activate the base environment with Python 3.11 for SignalP 6
+# Create and activate the base environment with Python 3.11
 conda create -n ilp_pipeline python=3.11
 conda activate ilp_pipeline
 
@@ -21,7 +20,7 @@ conda config --append channels conda-forge
 # Install core bioinformatics tools
 conda install -c bioconda curl pigz seqkit transdecoder cd-hit mmseqs2 hhsuite blast interproscan mafft trimal fasttree iqtree meme taxonkit parallel mamba snakemake yq
 
-# Install additional dependencies, including SignalP 6 requirements
+# Install additional dependencies
 conda install -c conda-forge biopython r-base r-ape ete3 psutil pymol-open-source pillow numpy matplotlib tqdm pytorch=1.13
 conda install -c anaconda pandas scikit-learn xgboost seaborn
 
@@ -29,11 +28,6 @@ conda install -c anaconda pandas scikit-learn xgboost seaborn
 pip install shap logomaker pyyaml
 pip install 'autophy @ git+https://github.com/aortizsax/autophy@main'
 
-# Install SignalP 6 manually (requires license from DTU Health Tech)
-# Download signalp-6.0h.fast.tar.gz from DTU Health Tech, then:
-# tar xfv signalp-6.0h.fast.tar.gz
-# cd signalp-6-package
-# pip install .
 # ColabFold requires separate installation (see https://github.com/sokrypton/ColabFold)
 # FoldTree is integrated via Snakemake in the pipeline (see https://github.com/DessimozLab/fold_tree)
 ```

@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-# Purpose: Extract initial sequence-based features from candidate ILPs for ML prediction
-# Inputs: analysis/all_candidates.fasta
-# Output: analysis/features_initial.csv
-# Notes: Structural features deferred to post-ColabFold prediction
+# Purpose: Extract final features (sequence + structural) from candidate ILPs for ML prediction and output
+# Inputs: analysis/all_candidates.fasta, analysis/pdbs/*.pdb
+# Output: analysis/features_final.csv
+# Notes: Includes structural features post-ColabFold prediction
 # Author: Jorge L. Pérez-Moreno, Ph.D., Katz Lab, University of Massachusetts, Amherst
 
 import pandas as pd
 from Bio import SeqIO
 import glob
+import subprocess
 import sys
+import os
+import statistics
 from Bio.SeqUtils.ProtParam import ProteinAnalysis
 import yaml
 
@@ -69,6 +72,46 @@ features["blast_identity"] = features["id"].map(blast_data).fillna(0)
 # Physicochemical properties
 features["hydrophobicity"] = [ProteinAnalysis(str(s.seq)).gravy() for s in seqs]
 features["charge"] = [ProteinAnalysis(str(s.seq)).charge_at_pH(7.0) for s in seqs]
+
+# TM-scores and pLDDT scores from candidate PDBs
+ref_pdbs = config["tmalign_refs"]
+os.makedirs("references", exist_ok=True)
+for ref_name, ref_path in ref_pdbs.items():
+    if not os.path.exists(ref_path) and ref_name != "dynamic":
+        if ref_name == "1TRZ":
+            subprocess.run(["wget", "-O", ref_path, "https://files.rcsb.org/download/1TRZ.pdb"])
+        elif ref_name == "6RLX":
+            subprocess.run(["wget", "-O", ref_path, "https://files.rcsb.org/download/6RLX.pdb"])
+        elif ref_name == "bombyxin":
+            with open("references/bombyxin.fasta", "w") as f:
+                f.write(">Bombyxin-II\nGIVDECCLRPCSVAALTLREAVNS\n:CLQEGACSVSFGLDAFD")
+            subprocess.run([config["colabfold_path"], "references/bombyxin.fasta", "references/", "--num-recycle", "3", "--model-type", "alphafold2_multimer_v3"])
+            os.rename("references/predict_0.pdb", ref_path)
+
+if not os.path.exists(ref_pdbs["dynamic"]) and os.path.exists("analysis/ref_ILPs_filtered.fasta"):
+    ilp_seqs = list(SeqIO.parse("analysis/ref_ILPs_filtered.fasta", "fasta"))
+    median_len = statistics.median([len(rec.seq) for rec in ilp_seqs])
+    ref_seq = min(ilp_seqs, key=lambda x: abs(len(x.seq) - median_len))
+    with open("preprocess/ref_temp.fasta", "w") as f:
+        SeqIO.write(ref_seq, f, "fasta")
+    subprocess.run([config["colabfold_path"], "preprocess/ref_temp.fasta", "preprocess/", "--num-recycle", "3", "--model-type", "alphafold2_multimer_v3"])
+    os.rename("preprocess/predict_0.pdb", ref_pdbs["dynamic"])
+
+tm_data = {ref: {} for ref in ref_pdbs}
+plddt_data = {ref: {} for ref in ref_pdbs}
+for type in ["prepro", "pro", "mature"]:
+    for pdb in glob.glob(f"analysis/pdbs/{type}_*.pdb"):
+        id_ = os.path.basename(pdb).replace(".pdb", "").replace(f"{type}_", "")
+        for ref_name, ref_path in ref_pdbs.items():
+            result = subprocess.check_output(["tmalign", ref_path, pdb], text=True)
+            tm_score = float([line for line in result.splitlines() if "TM-score=" in line][0].split()[1])
+            tm_data[ref_name][id_] = tm_score
+            with open(pdb) as f:
+                plddt = statistics.mean([float(line.split()[10]) for line in f if line.startswith("ATOM")])
+            plddt_data[ref_name][id_] = plddt
+    for ref_name in ref_pdbs:
+        features[f"tm_score_{ref_name}_{type}"] = features["id"].map(tm_data[ref_name]).fillna(0)
+        features[f"plddt_{ref_name}_{type}"] = features["id"].map(plddt_data[ref_name]).fillna(0)
 
 # InterPro domains
 interpro_data = {}

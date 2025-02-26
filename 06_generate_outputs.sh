@@ -1,10 +1,10 @@
 #!/bin/bash
-# Purpose: Generate tables, plots, FASTA files, metadata TSV, and 3D figures for manuscript
-# Inputs: analysis/features.csv, analysis/predictions.csv, analysis/novel_candidates.csv, candidates/*_blast.out, candidates/*_interpro.tsv, clades_*
+# Purpose: Step 06 - Generate tables, plots, FASTA files, metadata TSV, and 3D figures for manuscript
+# Inputs: analysis/features_initial.csv, analysis/predictions.csv, analysis/novel_candidates.csv, candidates/*_blast.out, candidates/*_interpro.tsv, clades_*
 # Outputs: output/*/*.csv, output/*/*.png, output/*/ilps.fasta, output/comparative_metadata.tsv, output/figures/*.png
 # Config: config.yaml (max_cpus)
 # Log: pipeline.log (progress, errors, profiling)
-# Notes: Added PyMOL dependency check
+# Notes: Final feature extraction with structural data; added PyMOL dependency check
 # Author: Jorge L. Pérez-Moreno, Ph.D., Katz Lab, University of Massachusetts, Amherst
 
 max_cpus=$(yq e '.max_cpus' config.yaml)
@@ -23,14 +23,17 @@ if ! command -v pymol >/dev/null 2>&1; then
     exit 1
 fi
 
+# Extract final features including structural data
+python extract_features.py analysis/all_candidates.fasta analysis/features_final.csv || { echo "$(date '+%Y-%m-%d %H:%M:%S') - extract_features.py failed for final features" >> pipeline.log; exit 1; }
+
 mkdir -p output/prepro output/pro output/mature output/figures
 
 for type in prepro pro mature; do
-    python generate_tables.py analysis/features.csv analysis/predictions.csv analysis/novel_candidates.csv candidates/[0-9]*_blast.out candidates/[0-9]*_interpro.tsv clades_ete_${type}/ clades_autophy_${type}/ output/${type} || { echo "$(date '+%Y-%m-%d %H:%M:%S') - generate_tables.py failed for ${type}" >> pipeline.log; exit 1; }
-    python generate_plots.py analysis/features.csv analysis/predictions.csv analysis/novel_candidates.csv clades_ete_${type}/ clades_autophy_${type}/ output/${type} || { echo "$(date '+%Y-%m-%d %H:%M:%S') - generate_plots.py failed for ${type}" >> pipeline.log; exit 1; }
+    python generate_tables.py analysis/features_final.csv analysis/predictions.csv analysis/novel_candidates.csv candidates/[0-9]*_blast.out candidates/[0-9]*_interpro.tsv clades_ete_${type}/ clades_autophy_${type}/ output/${type} || { echo "$(date '+%Y-%m-%d %H:%M:%S') - generate_tables.py failed for ${type}" >> pipeline.log; exit 1; }
+    python generate_plots.py analysis/features_final.csv analysis/predictions.csv analysis/novel_candidates.csv clades_ete_${type}/ clades_autophy_${type}/ output/${type} || { echo "$(date '+%Y-%m-%d %H:%M:%S') - generate_plots.py failed for ${type}" >> pipeline.log; exit 1; }
 done
 
-python generate_output_fasta_and_metadata.py analysis/ilp_candidates.fasta analysis/ref_ILPs_filtered.fasta analysis/features.csv analysis/predictions.csv analysis/novel_candidates.csv candidates/[0-9]*_interpro.tsv input/[0-9]*_*.fasta output/ || { echo "$(date '+%Y-%m-%d %H:%M:%S') - generate_output_fasta_and_metadata.py failed" >> pipeline.log; exit 1; }
+python generate_output_fasta_and_metadata.py analysis/ilp_candidates.fasta analysis/ref_ILPs_filtered.fasta analysis/features_final.csv analysis/predictions.csv analysis/novel_candidates.csv candidates/[0-9]*_interpro.tsv input/[0-9]*_*.fasta output/ || { echo "$(date '+%Y-%m-%d %H:%M:%S') - generate_output_fasta_and_metadata.py failed" >> pipeline.log; exit 1; }
 python generate_structure_figures.py output/figures/ preprocess/ analysis/pdbs/ || { echo "$(date '+%Y-%m-%d %H:%M:%S') - generate_structure_figures.py failed" >> pipeline.log; exit 1; }
 
 end_time=$(date +%s)

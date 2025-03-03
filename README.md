@@ -151,7 +151,7 @@ Identifies ILPs and novel candidates using an ensemble of Random Forest (RF) and
   4. Predicts ILP probabilities (RF + XGBoost average), flags novel ILPs (probability > 0.7, HHsearch < 70, BLAST < 30).
   5. Generates SHAP summary plot.
 - **Output**: `analysis/predictions.csv`, `analysis/novel_candidates.csv`, `output/shap_summary.png`, `output/rf_model.joblib`, `output/xgb_model.joblib`, `output/ml_metrics.txt`.
-- **Details**: Multi-threaded training, reusable models, robust validation; initial pass in `03` uses sequence features only, with structural refinement possible post-`04` if re-run.
+- **Details**: Multi-threaded training, reusable models, robust validation; initial pass in `03` uses sequence features only.
 
 
 ## Parameter Customization

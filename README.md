@@ -117,7 +117,7 @@ pip install 'autophy @ git+https://github.com/aortizsax/autophy@main'
 
 ### Overview
 
-Identifies ILPs and novel candidates using an ensemble of Random Forest (RF) and XGBoost models trained on reference data, with an initial sequence-based pass and a final pass incorporating structural features.
+Identifies ILPs and novel candidates using an ensemble of Random Forest (RF) and XGBoost models trained on reference sequence data.
 
 ### Feature Extraction (`extract_training_features.py`, `extract_features.py`)
 
